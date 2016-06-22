@@ -1,0 +1,21 @@
+
+include openwrt/rules.mk
+
+export TARGET_LDFLAGS
+export TARGET_CPPFLAGS
+
+
+all: prepare wtp
+
+
+prepare:
+	@echo "--INSTALL_ROOT :$(INSTALL_ROOT)"
+	@echo "--CC :$(CC)"
+	@echo "--TARGET_CC :$(TARGET_CC)"
+	@echo "--TARGET_CPPFLAGS :$(TARGET_CPPFLAGS)"
+	@echo "--TARGET_LDFLAGS :$(TARGET_LDFLAGS)"
+
+
+
+wtp:
+	@cd wtpcli && make 

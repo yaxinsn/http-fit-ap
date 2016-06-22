@@ -1,0 +1,47 @@
+CC=@set -e;echo "  CC     $<";gcc
+LD=@set -e;echo "  LD     $@";gcc
+
+PWD:=$(shell pwd)
+RELEASE_DIR=$(PWD)/../../release
+DIR_INS:=$(RELEASE_DIR)/usr/local/bin
+DIR_ENV:=/usr/local/bin
+
+EXE:=cli
+SRC:=$(sort $(wildcard *.c utils/*.c) tmpl.c)
+OBJ:=$(patsubst %.c,%.o,$(SRC))
+
+CFLAGS+=-I. -I./utils -include os.h -include utils/utils.h \
+		-include types_pub.h -include debug_pub.h -g
+EXTLIB+=-lcrypt -lutil -lrt
+LDFLAGS+=-g
+
+all default : $(EXE)
+install: $(DIR_INS)/$(EXE)
+env: $(DIR_ENV)/$(EXE)
+
+$(SRC): os.h
+$(OBJ): %.o : %.c $(wildcard *.h utils/*.h tmpl/*.h)
+$(filter-out tmpl.c,$(SRC)): tmpl.c
+
+$(EXE): $(OBJ)
+	$(LD) $(LDFLAGS) -o $@ $^ $(EXTLIB)
+
+os.h: os.sh
+	@set -e; echo "  GEN    $@"; sh $< > $@ || rm $@
+
+tmpl.c: tmpl.sh $(wildcard tmpl/*.h)
+	$(if $(if $(findstring B,$(MAKEFLAGS)),,$(wildcard $@)),\
+		$(if $(shell sh tmpl.sh $@.1;diff $@.1 $@ 2>/dev/null >/dev/null && echo yes),\
+	         $(shell rm -f $@.1),\
+			 @echo '  GEN    $@';mv $@.1 $@),\
+		@echo '  GEN    $@'; sh tmpl.sh $@ ; )
+
+clean :
+	@set -e; echo "  CLR    $(EXE)"; rm -f $(OBJ) $(EXE)
+distclean : clean
+	@set -e; echo "  DEL    tmpl.c os.h" ; rm -f tmpl.c os.h 
+$(sort $(DIR_ENV)/$(EXE) $(DIR_INS)/$(EXE)) : % : $(EXE)
+	@set -e; echo "  INST   $@"; install -m 4777 -s $< $@
+
+.PHONY: all clean distclean install
+

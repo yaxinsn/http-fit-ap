@@ -1,0 +1,1374 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <sys/wait.h>
+#include <pty.h>
+#include <utmp.h>
+#include <unistd.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <pwd.h>
+#include <sys/stat.h>
+#include <dirent.h>
+#include <errno.h>
+#include <network.h>
+#include <fnm.h>
+#include <console.h>
+#include <debug_pub.h>
+#define VCSD    "/tmp/vcsd.console.sock"
+#define VAMD    "/tmp/vamd.console.sock" 
+#define LINE    2048U
+#define DEFAULT_EXPIRE_LOGIN    120
+#define DEFAULT_EXPIRE_CONSOLE  600
+#define DEFAULT_WORKDIR         "/usr/local/etc/ambit/www/vdist" 
+
+static int HOLDTIME_CONSOLE=DEFAULT_EXPIRE_CONSOLE ;
+static char WORKDIR_CONSOLE[PATH_MAX] = { 0, } ;
+static char LOCAL_ADDR[32]  = { "<IP>" } ;
+
+typedef struct __network__ {
+    char path[64];
+    fnmwork read;
+    fnmwork live;   /* keepalive */
+    int fd;
+    console con;
+    int keep;
+    union {
+        pid_t pid;
+        unsigned int port;
+    };
+} channel_t;
+
+typedef struct __tty__ {
+    fnmctx fnm;
+    fnmwork   quit;
+    long      byte;
+    console   console;
+    channel_t *active;
+    channel_t csp;
+    channel_t vsm;
+    channel_t login; /* remote */
+    channel_t child; /*ssh|telnet|... */
+} tty_t;
+
+static tty_t TTY = {
+    .fnm   = NULL, .quit = NULL, .console = NULL, .active = NULL,
+    .csp   = {.path = "Console", .fd = -1, .keep = 1,},
+    .vsm   = {.path = "Console", .fd = -1, .keep = 1,},
+    .login = {.path = "LOGIN  ", .fd = -1,},
+    .child = {.path = "SHELL  ", .fd = -1,},
+};
+
+enum {
+    LOCAL_FAILED  =-1, /* failed and return */
+    LOCAL_CONTINUE= 0, /* continue -> tmpl */
+    LOCAL_SUCCESS = 1, /* success but return */
+};
+
+typedef struct __command__ {
+    int mode;   /* 0-full match, 1-partical match */
+    const char *tag;
+    int (*fun)(console_t *con, struct __command__ *cmd) ;
+    int security;
+} command_t;
+
+static int __net_live(fnmwork work);
+static int __net_expire(fnmwork work);
+static int __local_show(console_t *con, command_t *cmd);
+
+static int __ioswap(const char * tag, int in, int out)
+{
+    int  ret;
+    int  wlen;
+    int  rlen;
+    int  sum;
+    char buf[LINE] ;
+
+    sum = 0 ;
+    while(1) {
+        rlen = read(in, buf, sizeof(buf)) ;
+        if( rlen <= 0 ) {
+            if( rlen < 0 ) {
+                if( EINTR == errno ) continue ;
+                if( EAGAIN== errno ) break ;
+            }
+            // error:
+            if(0) PRINT("[%s]SWAP %d -> %d but read %d bytes.", 
+                tag, in, out, rlen);
+            return -2 ;
+        }
+
+        for(wlen=0; wlen<rlen; ) {
+            ret = write(out, buf+wlen, rlen-wlen) ;
+            if( ret <= 0 ) {
+                if( ret < 0 ) {
+                    if( EINTR == errno ) continue;
+                    if( EAGAIN== errno ) { usleep(50); continue;} 
+                }
+
+                // error:
+                if( 0 ) PRINT("[%s]SWAP %d -> %d but write %d bytes.",
+                    tag, in, out, ret );
+                return -3 ;
+            }
+
+            wlen+= ret ;
+        }
+
+        sum += wlen ;
+    }
+
+    return sum ;
+}
+
+static int __un_connect(const char *path)
+{
+    int ret;
+    int fd ;
+    struct sockaddr_un un ;
+
+    memset(&un, 0, sizeof(un));
+    un.sun_family = AF_UNIX; 
+    ret = snprintf(un.sun_path, sizeof(un.sun_path)-1, "%s", path) ;
+    if( ret >= sizeof(un.sun_path)) 
+        return -EINVAL ;
+
+    fd = socket(AF_UNIX, SOCK_STREAM, IPPROTO_IP); 
+    if( fd < 0 ) {
+        return -ENOSPC ;
+    }
+
+    ret = connect(fd, (struct sockaddr*)&un, SUN_LEN(&un)) ;
+    if( 0 != ret ) {
+        close(fd);
+        return -errno ;
+    }
+
+    set_nonblocking(fd);
+
+    return fd ;
+}
+
+static int __un_read(fnmwork work)
+{
+    int len ;
+    int off ;
+    UNUSED int ret ;
+    int fd = (int)WORK_FD(work) ;
+    channel_t * net = (channel_t*)WORK_ARG(work);
+    char buf[LINE]  ={0,};
+
+    while(1) {
+        off = 0 ;
+        len = read(fd, buf, sizeof(buf)) ;
+
+        if( len <= 0 ) {
+            if( len < 0 ) {
+                if( EINTR == errno ) continue ;
+                if( EAGAIN== errno ) break ;
+            }
+
+            break;
+        }
+
+        // no console to write, ignored all bytes.
+        if( NULL == net->con ) {
+            //PRINT("HIDDEN: %.*s", len, buf );
+            continue ;
+        }
+
+        // command line 
+        if( 0 == strncmp("##COMMAND##", buf, 11) ){
+            for(off=11; off<len; off++) {
+                if( buf[off] == '\r' || buf[off] == '\n' ) {
+                    buf[off++] = 0 ;
+                    if( buf[off] == '\r' || buf[off] == '\n' )
+                    {
+                        buf[off++] = 0 ;
+                    }
+                    break ;
+                }
+            }
+
+            // command is buf[cmd~off];
+            if( 0 == strcmp("ECHO_OFF", buf+11) ){
+                net->con->echo = 0 ;
+            } else if( 0 == strcmp("ECHO_ON", buf+11) ) {
+                net->con->echo = 1 ;
+            }
+        }
+
+        ret = console_write(TTY.console, buf+off, len-off, 1) ;
+        //PRINT("console write %d", ret);
+        if (ret < 0) {
+            return -1;
+        }
+    }
+
+    return 0 ;
+}
+
+static int  __con_prompt(console_t * con)
+{
+    channel_t * net = con->info ;
+    if( net && net == TTY.active && net->fd >= 0 ) {
+        return write(net->fd, "\n", 1);
+    }
+    return 0;
+}
+static int __local_files(console_t *con, command_t * cmd) 
+{
+    int   cnt = 0 ; /* total files */
+    DIR * dir = NULL ;
+    struct dirent * ent = NULL ;
+    struct stat     st ;
+    char   name[PATH_MAX] ;
+    dir = opendir(WORKDIR_CONSOLE); 
+    if( NULL != dir ) {
+        while( NULL != (ent=readdir(dir)) ) {
+            if( 0 == strcmp(".", ent->d_name) || 0 == strcmp("..", ent->d_name)) 
+                continue ;
+            snprintf(name, sizeof(name), "%s/%s", WORKDIR_CONSOLE, ent->d_name) ;
+            if( 0 != stat(name, &st) ) 
+                continue ;
+            if( !S_ISREG(st.st_mode) ) 
+                continue ;
+            if( 0 == cnt ) {
+                console_out(con, "You have some file, you can download them with these URL:\n") ;
+            }
+            cnt++ ;
+            console_out(con, "  %3d: http://%s/version/cli-%u/%s\n", cnt, LOCAL_ADDR, (unsigned)getpid(), ent->d_name) ;
+        }
+        closedir(dir);
+        if( cnt > 0 ) {
+            console_out(con, "\n-----------------------------------------------------------------------\n") ;
+        }
+    }
+    console_out(con, "Total %d files.\n", cnt) ;
+    return LOCAL_SUCCESS ;
+}
+#define __con_binding(X) __do_con_binding(X,__func__,__LINE__)
+
+static int __do_con_binding(channel_t * net, const char * fun, int line)
+{
+    console     con  =  TTY.console ; // ONLY ONE Console ~
+    channel_t * old  =  con->info ;
+
+    PRINT("[%s:%d]Old %p -> New %p/%p", fun, line, old, net, net->read);
+    if( old == net || NULL == net ) {
+        if( net ) {
+            console_out(con, "(already using console)\n");
+        }
+        return 0 ;
+    }
+
+    // un-binding old channel
+    if( old ){
+        old->con = NULL ; // hidden old output 
+        if( old == &TTY.login ) {
+            console_out(con, "\r\nLeaving %s ...", old->path );
+        }
+        if( 0 == old->keep ) {
+            // Keep flag not set, close it.
+            //console_out(con, "\r\nClosing %s ...", old->path );
+            FNM_READ_OFF(TTY.fnm, old->read);
+            FNM_TIMER_OFF(TTY.fnm,old->live);
+            old->con = NULL ;
+            if( old->fd >= 0 ) {
+                close(old->fd) ;
+                old->fd = -1 ;
+            }
+            old->path[6] = 0 ;// erase path info 
+        } else { // Keep flag set, keep this alive
+            con->cp = con->length = 0 ; // clean input buffer 
+            FNM_TIMER_OFF(TTY.fnm,old->live);
+            FNM_TIMER_ON(TTY.fnm, old->live, __net_live, old, 1) ;
+        }
+
+        /* exit from child, display temp files in WORKDIR_CONSOLE */
+        if( old == &TTY.child ) {
+            __local_files(con, NULL) ;
+        }
+    }
+
+    con->info = net ;
+    net->con  = con ;
+
+
+    FNM_TIMER_OFF(TTY.fnm, net->live); // stop background keepalive 
+    if( net->keep ) {
+        TTY.active= net ; // update Active CLI 
+        if( old && !old->keep ) {
+            console_prompt(con);
+        }
+    } else {
+        FNM_TIMER_ON(TTY.fnm, net->live, __net_expire, net, DEFAULT_EXPIRE_LOGIN) ;
+    }
+    if( net == &TTY.login ) {
+        console_out(con, "\r\nEntering to %s ...\r\n", net->path );
+    }
+    return 0 ;
+}
+
+// use path as network 
+static int __use_sock(channel_t *net, const char *path)
+{
+    int fd ;
+
+    if( net->fd >=0 ) {
+        // if channel alive, just swith 
+        if( 1 == write(net->fd ," ", 1) ) 
+        {
+            __con_binding(net) ;
+            return 0; 
+        }
+
+        // reset channel 
+        FNM_READ_OFF(TTY.fnm, net->read);
+        close(net->fd);
+        net->fd = -1 ;
+    }
+    
+    fd = __un_connect(path) ;
+    PRINT("Path %s, fd = %d", path, fd) ;
+    if( fd <0 ) {
+        return -1 ;
+    }
+
+    // update attr
+    set_nonblocking(fd) ;
+    net->fd   = fd ;
+    net->keep = 1 ; // unix socket -> auto set keep 
+    //snprintf(net->path+6, sizeof(net->path)-6, "%s", path) ; // always display Console
+    FNM_READ_ON(TTY.fnm, net->read, __un_read, net, net->fd) ;
+    // binding console<->socket 
+    __con_binding(net) ;
+    
+    return 0 ;
+}
+
+static int __net_expire(fnmwork work)
+{
+    channel_t * net = (channel_t*)WORK_ARG(work) ;
+
+    net->live =NULL ;
+    if( NULL == net->con ) { // not binded
+        console_out(TTY.console, "\r\nwait for connection expired.\r\n");
+        FNM_READ_OFF(TTY.fnm, net->read) ;
+        close(net->fd);
+        net->fd = -1 ;
+    } else { // binded by this net, come back active CLI 
+        console_out(TTY.console, "\r\nConnection idle expired.\r\n");
+        __con_binding( TTY.active) ;
+    }
+
+    return 0;
+}
+
+static int __con_quit(fnmwork work)
+{
+    TTY.quit = NULL ;
+    
+    if( TTY.byte && TTY.console){
+        TTY.byte = 0 ;
+        FNM_TIMER_ON(TTY.fnm, TTY.quit, __con_quit, NULL, 2);
+        return 0;
+    }
+
+    exit(0);
+}
+
+static unsigned long gReadEventCount = 0 ;
+static int __con_read(fnmwork work)
+{
+    int ret ;
+    console con = (console)WORK_ARG(work) ;
+    channel_t *net = (channel_t*)con->info ;
+
+    if( TTY.quit ) {
+        TTY.byte = 1;
+    }
+
+    if( NULL == net || net->keep ) {
+        console_read(con) ;
+    } else if ( net && net->fd ) {
+        // SWAP: console <-> net 
+        ret = __ioswap("con->net", con->fd, net->fd) ;
+        if( ret < 0 ) {                 // net error ? -> return console 
+            __con_binding( TTY.active ) ;
+        } else if(net == &TTY.child ) { // net child ? -> sync col/row
+            struct winsize ws; 
+            ioctl(con->fd,TIOCGWINSZ,&ws) ;
+            ioctl(net->fd,TIOCSWINSZ,&ws) ;
+        } else if(0 == net->keep ) { // sync tty's col|row ? 
+            // using telnet_option, not support yet.
+            FNM_TIMER_OFF(work->ctx, net->live);
+            FNM_TIMER_ON(work->ctx,  net->live, __net_expire, net, DEFAULT_EXPIRE_LOGIN) ;
+        }
+    }
+
+    gReadEventCount ++ ;
+
+    return 0;
+}
+
+static int __net_read(fnmwork work)
+{
+    int ret ;
+    channel_t * net = (channel_t*)WORK_ARG(work);
+    console     con = net->con ;
+
+    if( net && con ) {
+        ret = __ioswap("net->con", net->fd, con->fd) ;
+        if( ret < 0 ) { // net error ? -> return console 
+            __con_binding( TTY.active ) ;
+        } else if( 0 == net->keep ) {
+            FNM_TIMER_OFF(work->ctx, net->live);
+            FNM_TIMER_ON(work->ctx,  net->live, __net_expire, net, DEFAULT_EXPIRE_LOGIN) ;
+        }
+    }
+
+    return 0 ;
+}
+
+static int __net_live(fnmwork work)
+{
+    int ret = 0 ;
+    channel_t * net = (channel_t*)WORK_ARG(work); 
+
+    net->live = NULL ;
+    ret = write(net->fd, "\n", 1) ; // force prompt
+    if( ret < 0 ) {
+        PRINT("Deamon %s exit ?", net->path );
+        // todo: close this channel 
+        exit(3) ;
+    }
+    FNM_TIMER_ON(TTY.fnm, net->live, __net_live, net, 10) ;
+
+    return 0 ;
+}
+
+static int __net_accept(fnmwork work)
+{
+    int fd ;
+    struct sockaddr_in sin ;
+    console     con = TTY.console ;
+    socklen_t  slen = sizeof(sin);
+    channel_t * net = (channel_t*)WORK_ARG(work);
+
+    // once read event, 
+    FNM_READ_OFF(work->ctx, net->read) ;
+    
+    memset(&sin, 0, sizeof(sin));
+    do{
+        fd = accept(net->fd, (struct sockaddr*)&sin, &slen) ;
+        if( fd < 0 ) {
+            if( EINTR  == errno ) continue ;
+            if( EAGAIN == errno || EWOULDBLOCK == errno ){
+                // try accept next time
+                PERROR("Accept %d, try next time.", fd);
+                FNM_READ_ON(work->ctx, net->read, __net_accept, net, net->fd);
+                return 0 ;
+            }
+        
+            goto err; 
+        }
+    }while( 0 );
+    PERROR("Accept %d", fd);
+
+    dup2(fd, net->fd) ; // overflow listen socket 
+    close(fd); 
+    set_nonblocking(net->fd); 
+
+    // update path info
+    fd = strnlen(net->path, sizeof(net->path));
+    if( fd >= 0 && fd < sizeof(net->path)) {
+        snprintf(net->path + fd, sizeof(net->path)-fd, "@%s:%u", 
+            inet_ntoa(sin.sin_addr), ntohs(sin.sin_port)) ;
+    }
+    
+    // setup channel event: read + expire
+    FNM_READ_ON(work->ctx, net->read, __net_read, net, net->fd);
+    FNM_TIMER_OFF(TTY.fnm, net->live);
+    FNM_TIMER_ON(TTY.fnm, net->live, __net_expire, net, DEFAULT_EXPIRE_LOGIN) ;
+    
+    // bind console<->network 
+    __con_binding(net) ;
+    
+    console_out(con, "\r\n") ;
+    return 0 ;
+
+err: // destroy 'login' process 
+    close(net->fd) ; 
+    net->fd = -1 ;
+    net->port = 0 ;
+
+    return 1;
+}
+
+static inline int __switch_csp(void)
+{
+    return ( 0 == __use_sock(&TTY.csp, VCSD) ) ? 1 : 0 ; 
+}
+
+static inline int __switch_vsm(void)
+{
+    return ( 0 == __use_sock(&TTY.vsm, VAMD) ) ? 2 : 0 ; 
+}
+
+static int __local_vsm(console_t *con, command_t *cmd)
+{
+    __switch_vsm() ;
+    return LOCAL_SUCCESS ;
+}
+
+static int __local_csp(console_t *con, command_t *cmd)
+{
+    __switch_csp() ;
+    return LOCAL_SUCCESS ;
+}
+
+static int __local_cli(console_t *con, command_t *cmd)
+{
+    int ret = LOCAL_SUCCESS ;
+    if( 0 == strcasecmp(con->buf+4, "CS") ||
+        0 == strcasecmp(con->buf+4, "CSP") ) {
+        if( __switch_csp() <= 0 ) {
+            console_out(con,"CS CLI is unavailable (vcsd not running?)\n");
+        }
+    } else if( 0 == strcasecmp(con->buf+4, "EdgeWall") || 
+               0 == strcasecmp(con->buf+4, "VSM") ) {
+        if( __switch_vsm() <= 0 ) {
+            console_out(con,"VSM CLI is unavailable (vamd not running?)\n");
+        }
+    } else {
+        ret = LOCAL_FAILED; 
+    }
+    return ret;
+}
+
+/* timeout xxx*/
+static int __local_exp(console_t *con, command_t *cmd)
+{
+    int err = 1 ;
+    int V = 0 ;
+    char *p = con->buf + strlen("timeout "); 
+    char *e = con->buf + con->length ;
+
+    for( ; p< e; p++ ) {
+        if( *p != ' ' ) break ;
+	}
+    if( p < e ) {
+        e = NULL ;
+        V = (int)strtoul(p, &e, 10); 
+        if( NULL == e || ' ' == *e || 0 == *e ) {
+            if( V >= 30 && V <= 86400 ) {
+                console_out(con, "Set console timeout: %d -> %d (this will take effect next time.)\n", HOLDTIME_CONSOLE, V) ;
+                HOLDTIME_CONSOLE = V ; 
+                err = 0 ;
+            } else {
+                console_out(con, "%% Set console timeout failed, overflow [%d]\n. ", V) ;
+            }
+        }
+    }
+    if( err ) {
+        console_out(con, "Usage: timeout <30-86400>\n") ;
+    }
+    
+    return LOCAL_SUCCESS ;
+}
+
+static int __local_cmd(console_t *con, command_t *cmd)
+{
+    int n ;
+    pid_t pid ;
+    int am= 0 ;
+    channel_t *net = &TTY.child;
+    struct winsize ws;
+    static char __space__[LINE] = { [0 ... LINE-2] = '-', [LINE-1] = 0 ,} ;
+
+    // never allow PIPE redirect, never allow PATH value '/xxx/xx/'  
+    for(n=0; n<con->length; n++) {
+<<<<<<< .mine
+        if( con->buf[n] == '>' || con->buf[n] == '&' || con->buf[n] == '/' ) {
+=======
+        if(con->buf[n] == '<' || con->buf[n] == '|' || con->buf[n] == '>' || 
+           con->buf[n] == '&' || con->buf[n] == '/' || con->buf[n] == ';' ||
+           con->buf[n] == '$' || con->buf[n] == '(' || con->buf[n] == ')' ||
+           con->buf[n] == ',' || con->buf[n] == '!' || con->buf[n] == '~' || 
+           con->buf[n] == '*' || con->buf[n] == '`' || con->buf[n] == '\''|| con->buf[n] == '"' ) {
+>>>>>>> .r13406
+            console_out(con, "%% %.*s\r\n", con->length, con->buf) ;
+            console_out(con, "  %.*s^\r\n", n, __space__);
+            console_out(con, "%% Invalid command. (bad char %c)\r\n", con->buf[n]) ;
+
+            //con->cp = con->length = 0 ; 
+            return LOCAL_SUCCESS ;
+        }
+    }
+
+    // get console col|row 
+    ioctl(con->fd,TIOCGWINSZ,&ws) ;
+    pid = forkpty(&am, NULL, NULL, &ws) ;
+    if( pid < 0 ) {
+        console_out(con, "forkpty failed.\n") ;
+    } 
+
+    if( 0 == pid ) {
+        clearenv();
+        if( 1 ==  cmd->security ) {
+            struct passwd * pw; 
+            if( NULL ==(pw = getpwnam("admin")) )
+            if( NULL ==(pw = getpwnam("debug")) )
+            {
+                PRINT("Can not swith user.");
+                exit(1);
+            }
+            PRINT("UID %d, GID=%d, EUID=%d", getuid(), getgid(), geteuid());
+            setgid(pw->pw_gid);
+            setuid(pw->pw_uid);
+            seteuid(pw->pw_uid);
+            PRINT("UID %d, GID=%d, EUID=%d", pw->pw_uid, pw->pw_gid, pw->pw_uid);
+            PRINT("UID %d, GID=%d, EUID=%d", getuid(), getgid(), geteuid());
+        } else if( 2 == cmd->security ) {
+            setuid(0);
+            setgid(0);
+            seteuid(0);
+        }
+        if( 0 != chdir(WORKDIR_CONSOLE) ) {
+            exit(1);
+        }
+        setenv("PATH", "/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin",1);
+        execl("/bin/bash", "-bash", "-c", con->buf, NULL);
+        execl("/bin/sh", "-sh",  "-c", con->buf, NULL) ;
+        exit(0);
+    }
+
+    // parent 
+    set_nonblocking(am) ;
+    net->pid = pid ;
+    net->fd  = am  ;
+    snprintf(net->path+6, sizeof(net->path)-6, "%s", con->buf) ;
+    FNM_READ_OFF(TTY.fnm,net->read);
+    FNM_READ_ON(TTY.fnm, net->read, __net_read, net, net->fd) ;
+    __con_binding(net) ;
+    
+    return LOCAL_SUCCESS ;
+}
+
+static int __local_exit(console_t *con, command_t *cmd)
+{
+    FNM_TIMER_MSEC_ON(TTY.fnm, TTY.quit, __con_quit, NULL, 200);
+    return LOCAL_CONTINUE; // sending exit to daemon 
+}
+
+static int __local_show(console_t *con, command_t *cmd)
+{
+    int n ;
+    channel_t * net ;
+    console_out(con, "Show console status: \n");
+    console_out(con, " Console  : fd %d, hist %d\n", con->fd, con->hcount) ;
+    for(n=0, net=&TTY.csp; n<4; n++, net++) {
+        console_out(con, " Channal %d: IO %2d, EV %08x, LV %08x, ACT %d, %s\n",
+            n, net->fd, (u32)net->read, (u32)net->live, !!(net->con), net->path) ;
+    }
+    return LOCAL_SUCCESS ;
+}
+
+static int __local_history(console_t *con, command_t *cmd)
+{
+    int n ,idx , len ;
+    char buf[LINE] ;
+    
+    for( n= (con->hcount>CON_MAXHIST)?con->hcount-CON_MAXHIST:0 ; n<con->hcount; n++) {
+        idx = n % CON_MAXHIST ;
+        if( con->hist[idx] ) {
+            len = snprintf(buf, sizeof(buf), 
+                "%4d  %s\n", n, con->hist[idx]) ;
+            if( len <= 0 ) 
+                continue; 
+            else if( len >= sizeof(buf) ) {
+                buf[sizeof(buf)-2] = '\n' ;
+                buf[sizeof(buf)-1] = 0 ; 
+                len = sizeof(buf)-1 ;
+            }
+            write(con->fd, buf, len) ;
+        }
+    }
+    //con->cp = con->length = 0 ; // empty command line 
+    return LOCAL_SUCCESS ;
+}
+
+static int __local_quicker(console_t *con, command_t *cmd)
+{
+    int sel, idx, len;
+    char * eptr = NULL ;
+    unsigned char  nch = (unsigned char)*(con->buf+1) ;
+    char line[LINE]; 
+
+    if( '!' == nch ) { 
+        /* pickup last one */
+        idx = (con->hcount - 1) % CON_MAXHIST ;
+        if( con->hcount > 0 && con->hist[idx]){
+            eptr = con->buf+2 ;
+            goto idx_valid ;
+        }
+    } else if( '0' <= nch && nch <= '9' ){
+        /* pickup by index */
+        sel = strtol(con->buf+1, &eptr, 10) ;
+        if( (!eptr|| *eptr==' ' ||*eptr==0)){
+            if( sel <con->hcount && sel >=0 && sel > con->hcount-CON_MAXHIST ) {
+                idx = sel % CON_MAXHIST ;
+                if( con->hist[idx] )
+                    goto idx_valid ;
+            }
+        }
+    } else if( ('a' <= nch && nch <= 'z')||('A' <= nch && nch <= 'Z') ) {
+        /* pickup by name* */
+        for(len=0; len<con->length; len++) {
+            if( con->buf[len] == ' ' ){
+                break ;
+            }
+        }
+        eptr = con->buf + len ;
+        len-- ;
+        for(sel=con->hcount-1; sel>=0 && sel>con->hcount-CON_MAXHIST ; sel--) {
+            idx=sel % CON_MAXHIST ;
+            if( !con->hist[idx] ) break ;
+            if( 0 == strncmp(con->hist[idx], con->buf+1, len) )
+                goto idx_valid ;
+        }
+    }
+
+    console_out(con, "%%... %s ...\n", con->buf);
+    return LOCAL_FAILED ;
+idx_valid:
+    if( eptr && *eptr ) {
+        len = snprintf(line, sizeof(line), "%s%s%s", 
+            con->hist[idx], 
+            (*eptr==' ')?"":" ", 
+            (!!eptr)?eptr:"");
+        if( len > 0 ) {
+            len = strnlen(line, sizeof(line)-1) ;
+            con->length = len ;
+            con->cp = len ;
+            line[len++] = 0 ; // appending '\0' 
+            console_ensure(con, len);
+            memcpy(con->buf, line, len);
+        }
+    } else {
+        con->length = snprintf(con->buf, con->max, 
+            "%s", con->hist[idx]) ;
+        if( con->length < 0 || con->length >= con->max )
+            con->length = 0 ;
+        con->cp = con->length ;
+    }
+    console_out(con, " > %s\n", con->buf );
+    
+    return LOCAL_CONTINUE ;
+}
+
+static int str2mac(const char *str, char *mac)
+{
+	u32 a,b,c,d,e,f ;
+	int n; 
+
+	memset(mac, 0, 6) ;
+	n = sscanf(str, "%x:%x:%x:%x:%x:%x", &a, &b, &c, &d, &e, &f) ;
+	if( 6 == n ) {
+		if(a>255||b>255||c>255||d>255||e>255||f>255)
+			return 0 ;
+		mac[0] = a; mac[1] = b; 
+		mac[2] = c; mac[3] = d;
+		mac[4] = e; mac[5] = f;
+		return 1 ;
+	}
+	return 0;
+}
+
+static char *mac2str(const char *_mac, char *str)
+{
+	unsigned char * mac = (unsigned char*)_mac ;
+	sprintf(str, "%02x:%02x:%02x:%02x:%02x:%02x",
+		mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]) ;
+	return str ;
+}
+
+static int __local_login(console_t *con, command_t *cmd)
+{
+    char mac[8];
+    char str[32];
+    int fd ;
+    int ret;
+    struct sockaddr_in    sin;
+    socklen_t             slen;
+    int result = 0 ;
+    channel_t * net = &TTY.login;
+
+    if( net->fd >= 0 ) {
+        console_out(con, "Console is waiting login connection[port=%u]\n", net->port);
+        goto out;
+    }
+
+    // get mac address from arg
+    ret = str2mac(con->buf+6, mac);
+    if( ! ret  ) {
+        console_out(con, "Invalid mac[%.*s]\n", con->length-6, con->buf+6);
+        goto out ;
+    }
+
+    fd = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+    if( fd < 0 ) {
+        console_out(con, "socket: %d/%s\n", errno, strerror(errno));
+        goto out ;
+    }
+    set_nonblocking(fd);
+
+    slen = sizeof(sin);
+    memset(&sin, 0, slen);
+    ret  = bind(fd, (struct sockaddr*)&sin, slen) ;
+    if( 0 != ret ) {
+        console_out(con, "bind: %d/%s\n", errno, strerror(errno));
+        close(fd);
+        goto out ;
+    }
+
+    ret  = getsockname(fd, (struct sockaddr*)&sin, &slen);
+    if( 0 != ret || sin.sin_port <= 0 ) {
+        console_out(con, "getsockname: %d/%s\n", errno, strerror(errno));
+        close(fd);
+        goto out ;
+    }
+
+    ret  = listen(fd, 1) ;
+    if( 0 != ret ) {
+        console_out(con, "listen: %d/%s\n", errno, strerror(errno));
+        close(fd);
+        goto out ;
+    }
+
+    net->con   = NULL ; // before accept , hidden 
+    net->fd    = fd ;
+    net->port  = ntohs(sin.sin_port) ;
+    mac2str(mac, net->path+6);
+    FNM_READ_OFF(TTY.fnm,net->read) ;
+    FNM_READ_ON(TTY.fnm, net->read, __net_accept, net, fd) ;
+    FNM_TIMER_ON(TTY.fnm,net->live, __net_expire, net, 10) ; // 10s for connect 
+
+    console_out(con, "Port %u opened, waiting connection ... \n", net->port ) ;
+    console_ensure(con, 64) ; // LEN>=strlen("login MAC PORT\r\n\0") ;
+    mac2str(mac, str);
+    ret = snprintf(con->buf, con->max, "login %s %u", str, net->port) ;
+    if( ret <= 0 || ret >= con->max )
+        return LOCAL_FAILED ;
+    con->length = ret ;       // Reset con's buffer length 
+
+    return LOCAL_CONTINUE ;
+
+out:
+    return (result) ? LOCAL_SUCCESS : LOCAL_FAILED;
+}
+
+static command_t LOCAL[] = {
+    {1, "!"   , __local_quicker, } ,
+    {0, "VSM" , __local_vsm, },
+    {0, "CSP" , __local_csp, },
+    {1, "cli ", __local_cli, },
+    {1, "timeout", __local_exp, }, // setup HOLDTIME_CONSOLE
+    {1, "files", __local_files, }, // display local files 
+    {1, "ssh" , __local_cmd, },
+    {1, "tcpdump" , __local_cmd, 2},
+    {1, "telnet", __local_cmd,},
+    {1, "arp", __local_cmd,} ,
+<<<<<<< .mine
+    {1, "ping", __local_cmd,} ,
+=======
+    {1, "ping", __local_cmd,2,} ,
+>>>>>>> .r13406
+    {1, "route", __local_cmd,} ,
+    {1, "login ",__local_login,} ,
+    {1, "history", __local_history, },
+    {1, "exit", __local_exit,} , 
+    {0, NULL, NULL} ,
+    {1, "traceroute", __local_cmd,} ,
+    {1, "netstat", __local_cmd,} ,
+    {1, "ping", __local_cmd,} ,
+    {1, "ftp", __local_cmd, 1,},
+    {0, "show", __local_show,},  // disabled
+    {1, "arping", __local_cmd,} ,
+};
+
+#define is_white(c)  ((c)==' '||(c)=='\t')
+
+static int __cli_execute(console_t * con)
+{
+    int n;
+    int w;
+    int ret;
+    channel_t * net = con->info ;
+    command_t * cmd ;
+
+    // format con's buffer
+    for(n=0,w=0; n<con->length; n++) {
+        switch( con->buf[n] ) {
+            case '\'':
+                do{
+                    con->buf[w++] = con->buf[n++] ;
+                }while( n<con->length && con->buf[n] != '\'') ;
+                break ;
+            case '\"':
+                do{
+                    con->buf[w++] = con->buf[n++] ;
+                }while( n<con->length && con->buf[n] != '\"') ;
+                break;
+            case ' ' :
+            case '\t':
+                if( w && is_white(con->buf[w-1]) ) {
+                    break;
+                }
+            default:
+                con->buf[w++] = con->buf[n];
+                break ;
+        }
+    }
+    con->length = w ;
+    
+    console_ensure (con, con->length + 3);
+    con->buf[con->length] = '\0' ;
+
+    if( con->buf[0] == '!' ) {
+        if( LOCAL_CONTINUE != __local_quicker(con, NULL) )
+            goto out ;
+    }
+
+    console_hist_add(con); 
+
+    for(cmd=LOCAL;cmd->tag;cmd++) {
+        if( 0 == cmd->mode && 0 == strcmp(cmd->tag, con->buf) ) {
+            break ;
+        } else if( 1 == cmd->mode && 0 == strncmp(cmd->tag, con->buf, strlen(cmd->tag)) ) {
+            break ;
+        }
+    }
+
+    ret = (!cmd->fun) ? LOCAL_CONTINUE : cmd->fun(con, cmd) ;
+    
+    if( LOCAL_CONTINUE != ret ) {
+        console_prompt(con) ;
+        goto out ;
+    }
+    
+    // LOCAL continue : if have network -> transfer to network
+    if( NULL != net && net->fd > 0 ) {
+        con->buf[con->length++] = '\n' ; // append '\n' for tmpl execute
+        ret = write(net->fd, con->buf, con->length) ;
+        //PRINT("NET = %d, write %d/%d", net->fd, ret, con->length);
+        if( ret != con->length ) {
+            net->keep = 0 ; // auto close this net
+            if( net== &TTY.csp  && TTY.vsm.fd > 0 ) {
+                __con_binding(&TTY.vsm) ;
+            }else if( net==&TTY.vsm && TTY.csp.fd > 0 ){
+                __con_binding(&TTY.csp) ;
+            }else {
+                exit(1);
+            }
+        }
+    } else if( con->length ) {
+        //PRINT("CMD = %.*s, ignored", con->length, con->buf );
+    }
+
+out:
+    con->echo = 1 ;
+    con->cp = con->length = 0 ;
+    return 0 ;
+}
+
+static void __cli_sigchld(int signo)
+{
+    pid_t   pid; 
+    int     stat; 
+    channel_t * net = &TTY.child ;
+    while((pid = waitpid(-1, &stat, WNOHANG)) > 0){ 
+        //__con_binding(TTY.active);
+        if( net->pid == pid ) {
+            /*
+            if( 0 && net->fd >= 0 ) {
+                close(net->fd) ;
+                net->fd = -1 ;
+            }*/
+            net->pid = 0 ;
+        }
+    } 
+    return; 
+}
+
+static void __cli_sigpipe(int signo)
+{
+    signal(SIGPIPE, SIG_IGN) ;
+    if( !TTY.active ){
+        exit(0);
+    }
+    signal(SIGPIPE, __cli_sigpipe);
+}
+static int __pipe_rline(char ** cmd) {
+    static char cmds[4096] ;
+    static int  getp = 0 ; // position to readline 
+    static int  endp = 0 ; // position to wirte new block 
+
+    int m = 0 ;
+    int L = 0 ;
+    // 1. try get line from getp 
+    for(m=getp; m<endp; m++) {
+        if( cmds[m] == '\r' || cmds[m] == '\n' ) {
+            cmds[m++] = '\n' ;    // force '\n' at EOF 
+            L = m-getp ;
+            *cmd = (cmds+getp) ;// output cmd position 
+            /* ignore empty line */
+            while( m<endp && (cmds[m] =='\n' || cmds[m] == '\r') )
+                m++ ;
+            getp = m ;    // next start 
+            return L ;
+        }
+    }
+
+    // 2. copy the left bytes to beginning of cmds 
+    if( getp && endp > getp ) {
+        m = endp - getp ;
+        memcpy(cmds, cmds+getp, m) ;
+        getp =0 ;
+        endp =m ;
+    }
+
+    // 3. do read 
+    L = 0 ;
+    while( endp < sizeof(cmds) ){
+        m = read(0, cmds+endp, sizeof(cmds)-endp) ;
+        if( m <= 0 ) {
+            break ; // 
+        }
+        endp += m ;
+        L += m ;
+    }
+
+    if( L == 0 ) {
+        return -1 ; // IO
+    }
+
+    // 4. try get line from getp again 
+    for(m=getp; m<endp; m++) {
+        if( cmds[m] == '\r' || cmds[m] == '\n' ) {
+            cmds[m++] = '\n' ;    // force '\n' at EOF 
+            L = m-getp ;
+            *cmd = (cmds+getp) ;// output cmd position 
+            /* ignore empty line */
+            while( m<endp && (cmds[m] =='\n' || cmds[m] == '\r') )
+                m++ ;
+            getp = m ;    // next start 
+            return L ;
+        }
+    }
+
+    // 5. last line ?
+    if( endp < sizeof(cmds) ){
+        cmds[endp++] = '\n' ;
+        L = endp -getp ;
+        getp = endp ;
+        return L ;
+    }
+
+    return -2 ; // overflow 
+}
+
+static int __pipe_read(fnmwork work)
+{
+    static char buf[2048] ;
+    static char motd[]   = {"]: "} ;
+    static char * p_motd = motd ;
+    static char passwd[] = {"assword: "} ;
+    static char * p_pass = passwd ;
+    
+    char ch= 0 ;
+    int i  = 0;
+    int fd = (int)WORK_FD(work);
+    int nr = 0 ; // read size 
+    int ns = 0 ; // send size 
+    int nt = 0 ; // write return value
+
+    do{
+        nr=read(fd, buf, sizeof(buf));
+        if( nr <= 0 ) {
+            if( nr < 0 ){
+                if( EINTR  == errno ) continue ;
+                if( EAGAIN == errno ) break ;
+            }
+            close(fd);
+            exit(0);
+        }
+
+        for(ns=0; ns<nr; ) {
+            nt = write(1, buf+ns, nr-ns) ;
+            if( nt <= 0 ){
+                if( nt < 0 ){
+                    if( EAGAIN == errno || EINTR  == errno) 
+                        continue ;
+                }
+                close(fd);
+                exit(1);
+            }
+            ns+= nt ;
+        }
+
+        // detect line EOF 
+        for(i=0; i<nr;i++) {
+            ch = buf[i] ;
+            if( *p_motd == ch ) {
+                p_motd++ ;
+            } else {
+                p_motd = motd ;
+            }
+            if( *p_pass == ch ) {
+                p_pass++ ;
+            } else {
+                p_pass = passwd ;
+            }
+            if( !*p_motd || !*p_pass ) { 
+                
+                char * cmd = NULL ;
+                nt = __pipe_rline(&cmd) ;
+                if( nt > 0 && NULL != cmd ) {
+                    write(fd, cmd, nt) ;
+                }else {
+                    write(1, "\r\n", 2);
+                    exit(0);
+                }
+                p_motd = motd ;
+                p_pass = passwd ;
+            }
+        }
+        
+    }while(1);
+
+    return 0;
+}
+
+static int pipe_cli(int ac, char *av[])
+{
+    int  i;
+    int  nr ;
+    char ch ;
+    char buf[512] ;
+    char motd[]   = {"]: "} ;
+    char * p_motd = motd ;
+    char banner[] = {"Press return for console: "} ;
+    char * p_bann = banner ;
+
+    pid_t pid = 0;
+    int    am  = -1;
+    fnmctx fnm = NULL;
+    fnmwork w_reader = NULL;
+    fd_set rds ;
+    int    is_banner_ok = 0;
+
+    struct timeval hold = {
+        .tv_sec = 0, .tv_usec = 0 ,
+    };
+
+    fnm = fnm_create("PIPE_CLI", 10, 0, NULL, NULL, NULL);
+    if( !fnm ) {
+        printf("Create network module failed.\n");
+        return -2;
+    }
+
+    pid = forkpty(&am, NULL, NULL, NULL);
+    if( pid < 0 ) {
+        printf("Create pipe cli failed.\n");
+        return -1 ;
+    }
+
+    if( 0 == pid ) {
+        execv("/usr/local/bin/cli", av);
+        exit(0);
+    }
+    set_nonblocking(0)  ;
+    set_nonblocking(1)  ;
+    set_nonblocking(am) ;
+
+    // skin banner
+    hold.tv_sec =30 ; // 10 seconds only 
+    do {
+        FD_ZERO(&rds);
+        FD_SET(am, &rds) ;
+        nr = select(am+1, &rds, NULL, NULL, &hold) ;
+        if( nr <= 0 ) {
+            break ;
+        }
+        nr=read(am, buf, sizeof(buf));
+        if( 0 == nr ){
+            return 0 ; // exit main
+        }
+        if( nr < 0 ) break ;
+
+        //write(1, buf, nr) ; // hide the banner handshark output
+
+        for(i=0; i<nr; i++) {
+            ch = buf[i] ;
+            if( *p_motd == ch ) {
+                p_motd++;
+            } else {
+                p_motd = motd;
+            }
+            if( *p_bann == ch ) {
+                p_bann++ ;
+            } else {
+                p_bann = banner ;
+            }
+            if( 0 == *p_bann ) {
+                if( i== nr-1) {
+                    write(am, "\n", 1) ;
+                }
+            }
+            if( 0 == *p_motd ) {
+                is_banner_ok = 1;
+                break ;
+            }
+        }
+    }while( !is_banner_ok && (hold.tv_sec || hold.tv_usec) ) ;
+
+    if( !is_banner_ok ) {
+        printf("Entering cli timeout.\r\n");
+        close(am) ;
+        return -1 ;
+    }
+
+    // starting prompt 
+    if( 1 != write(am, "\n", 1) ) {
+        printf("Handle cli command prompt failed.\r\n");
+        close(am) ;
+        return -2 ;
+    }
+
+    // starting execute
+    FNM_READ_ON(fnm, w_reader, __pipe_read, NULL, am);
+
+    // timeout 
+    hold.tv_sec = 60 ;
+    select(0, NULL, NULL, NULL, &hold) ; 
+
+    return 0;
+}
+
+/* cli cs|vsm 
+ *
+ */
+int main(int ac, char *av[])
+{
+    int ret ;
+    console con;
+    char * ev = NULL ;
+    UNUSED char msg[] = { "Hello world" } ;
+    struct timeval exp= {.tv_sec = HOLDTIME_CONSOLE, .tv_usec = 0 ,} ;
+
+    signal(SIGPIPE, __cli_sigpipe);
+    signal(SIGCHLD, __cli_sigchld);
+
+    // TRY PIPE channel supporting 
+    if( NULL == ttyname(0) ) {
+        // stoping normal cli init 
+        return pipe_cli(ac, av);
+    }
+
+<<<<<<< .mine
+    // change working directory
+    // todo: (when add 'tcpdump' command, setup this)
+
+=======
+    // change working directory
+    // todo: (when add 'tcpdump' command, setup this)
+	snprintf(WORKDIR_CONSOLE, sizeof(WORKDIR_CONSOLE), "%s/cli-%u", DEFAULT_WORKDIR, (unsigned)getpid()) ;
+    if( 0 != mkdir(WORKDIR_CONSOLE, 0755) ) {
+        printf("Cannot create working directory !\n");
+        return errno ;
+    }
+
+    ev = getenv("SSH_CONNECTION");
+    if( ev && *ev ) {
+        char paddr[32], pport[32], laddr[32], lport[32] ;
+        if( 4 == sscanf(ev, "%s %s %s %s", paddr, pport, laddr, lport) ) {
+            snprintf(LOCAL_ADDR, sizeof(LOCAL_ADDR), "%.*s", 32, laddr) ;
+        }         
+    }
+            
+>>>>>>> .r13406
+    // console first 
+    con = console_create();
+    if( NULL == con ) {
+        printf("Cannot init a console !\n");
+        return -1;
+    }
+    con->exec   = __cli_execute;
+    con->prompt = __con_prompt ;
+    TTY.console = con ;
+
+    // create fnm module 
+    TTY.fnm = fnm_create("CLI", 64, 0,NULL,NULL,NULL);
+    if( NULL == TTY.fnm ) {
+        printf("Create Network module failed!\n");
+    }
+
+    // Enable console read
+    FNM_READ_ON(TTY.fnm, con->read, __con_read, con, con->fd) ;
+
+    // try connect a daemon 
+    if( ac >= 2 && 0 == strncasecmp(av[1], "vsm", 3) ){
+        if( __switch_vsm() <= 0 ){
+            printf("no VAMD exist !\n");
+            return -2 ;
+        }
+    }else if( ac >= 2 && 0 == strncasecmp(av[1], "cs", 2) ){
+        if( __switch_csp() <= 0 ){
+            printf("no VCSD exist !\n");
+            return -2 ;
+        }
+    } else {
+        if( (ret=__switch_csp()) <= 0 )
+        if( (ret=__switch_vsm()) <= 0 )
+        {
+            printf("Neither VCSD nor VAMD exist !\n");
+            return -2;
+        }
+    }
+
+    // CLI expire holdtime 
+    do {
+        ret = select(0, NULL, NULL, NULL, &exp) ;
+        if( exp.tv_sec > 0 ) 
+            continue ;
+        if( gReadEventCount ) {
+            exp.tv_sec = HOLDTIME_CONSOLE ;
+            gReadEventCount = 0 ;
+            continue ;
+        }
+    } while(exp.tv_sec ) ;
+
+    printf("\n%%EXIT: CLI Idle for too long.\n");
+
+    return 0 ;
+}
+
+static EXITCALL void __tty_reset__(void)
+{
+    char cmd[PATH_MAX];
+
+    if( 0 == strncmp(WORKDIR_CONSOLE, DEFAULT_WORKDIR, strlen(DEFAULT_WORKDIR)) ) {
+        setuid(0);
+        setgid(0);
+        snprintf(cmd, sizeof(cmd), "rm -rf %s", WORKDIR_CONSOLE);
+        system(cmd); 
+    }
+
+    if( TTY.console ) {
+        console_delete(TTY.console);
+    }
+}

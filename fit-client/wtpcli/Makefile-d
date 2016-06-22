@@ -1,0 +1,42 @@
+CC=$(TARGET_CC)
+LD=$(TARGET_LD)
+
+CC=@set -e;echo "  CC     $<";gcc
+LD=@set -e;echo "  LD     $@";gcc
+
+PWD:=$(shell pwd)
+RELEASE_DIR=$(PWD)/../../release
+DIR_INS:=$(RELEASE_DIR)/usr/local/bin
+DIR_ENV:=/usr/local/bin
+
+EXE:=cli
+SRC:=$(sort $(wildcard *.c utils/*.c) )
+OBJ:=$(patsubst %.c,%.o,$(SRC))
+
+CFLAGS+=-I. -I./utils -include os.h -include utils/utils.h \
+		-include types_pub.h -include debug_pub.h $(TARGET_CPPFLAGS)/   -g  -std=c99
+EXTLIB+=-lcrypt -lutil -lrt
+LDFLAGS+=-g $(TARGET_FLAGS) -ljson 
+
+all default : $(EXE)
+install: $(DIR_INS)/$(EXE)
+env: $(DIR_ENV)/$(EXE)
+
+$(SRC): os.h
+$(OBJ): %.o : %.c $(wildcard *.h utils/*.h tmpl/*.h)
+
+$(EXE): $(OBJ)
+	$(LD) $(LDFLAGS) -o $@ $^ $(EXTLIB)
+
+os.h: os.sh
+	@set -e; echo "  GEN    $@"; sh $< > $@ || rm $@
+
+clean :
+	@set -e; echo "  CLR    $(EXE)"; rm -f $(OBJ) $(EXE)
+distclean : clean
+	@set -e; echo "  DEL    os.h" ; rm -f os.h 
+$(sort $(DIR_ENV)/$(EXE) $(DIR_INS)/$(EXE)) : % : $(EXE)
+	@set -e; echo "  INST   $@"; install -m 4777 -s $< $@
+
+.PHONY: all clean distclean install
+

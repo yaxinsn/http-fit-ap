@@ -1,0 +1,313 @@
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <errno.h>
+#include <debug_pub.h>
+
+#include <utils/utils.h>
+#include <utils/vty.h>
+#include <utils/thread.h>
+#include <utils/command.h>
+#include <utils/log.h>
+#include <utils/vector.h>
+#include <utils/network.h>
+
+#include "local.h"
+
+#define WORKDIR "/tmp" 
+
+struct vty * console = NULL ;
+struct thread_master * master = NULL ;
+
+static char workdir[128] = {0,} ;
+
+
+static void __destroy__(void)
+{
+	char   cmd[256];
+	char   dir[128];
+	struct stat st; 
+
+	snprintf(dir, sizeof(dir), "%s/%u", WORKDIR, getpid());
+
+	if( *dir && 0 == strncmp(dir, workdir, sizeof(dir)) && 0 == stat(dir, &st) ) {
+		if( S_ISDIR(st.st_mode) ) {
+			snprintf(cmd, sizeof(cmd), "rm -rf %s/%u", WORKDIR, getpid());
+			chdir("/");
+            setuid(0);
+            setgid(0);
+			system(cmd) ;
+		}
+	}
+}
+
+typedef struct __pipe_exec__ {
+	int in;
+	int cp;
+	int ep; 
+	int count;
+	char buf[4096] ;
+
+	vpipe_t * pipe ;
+	struct thread_master * master;
+	struct thread * t_next;
+} pipeexec_t ;
+
+static int __cmd_expr(struct thread *t)
+{
+	pipeexec_t * exe = THREAD_ARG(t) ;
+
+	exe->t_next = NULL; 
+
+	exit(0) ;
+
+	
+}
+
+static int __cmd_get(pipeexec_t * pe, char **cmd, int * siz)
+{
+	char * s ;
+	char * n ;
+	int    len;
+
+	/* trim */
+	if( pe->cp > 0 ) {
+		if( pe->ep > pe->cp ) {
+			memcpy(pe->buf, pe->buf+pe->cp, pe->ep - pe->cp);
+			pe->ep = pe->ep - pe->cp;
+			pe->cp = 0 ;
+		} else {
+			pe->ep = pe->cp = 0 ;
+		}
+	}
+
+	/* try a read */
+	if( pe->in >= 0 ) {
+		int ret;
+		ret = read(pe->in, pe->buf+pe->ep, sizeof(pe->buf)-pe->ep-1); /* left 1-byte for STRING-EOF */
+		if( ret > 0 ) {
+			pe->ep += ret; 
+		} else if( 0 == ret ) {
+			pe->in  = -1; // never read again (but, we do not close it directly )
+		} else if( ret < 0 ) {
+			pe->in  = -2; // 
+		}
+	}
+
+	assert(pe->ep < sizeof(pe->buf));
+	pe->buf[pe->ep] = '\0' ; // STRING-EOF 
+
+	/* try getting command line */
+
+	for(; pe->cp<pe->ep; pe->cp++) {
+		if( '\r' == pe->buf[pe->cp] || '\n' == pe->buf[pe->cp] ||
+		    '\t' == pe->buf[pe->cp] || ' '  == pe->buf[pe->cp] ) {
+			continue ;
+		}
+		break ;
+	}
+
+	if( pe->cp >= pe->ep ) {
+		*cmd = "exit\n" ;
+		*siz = 5 ;
+
+		THREAD_TIMER_OFF(pe->t_next);
+		THREAD_TIMER_ON(pe->master, pe->t_next, __cmd_expr, pe, 5);
+		return 0 ;
+		return -ENOBUFS;
+	}
+
+	s = (char *)(pe->buf + pe->cp) ;
+	n = strchrnul((const char*)s,  '\n');
+	//PRINT("S = %p, N = %p [%02x]", s, n, (unsigned char)*n );
+
+	if( NULL == n || (long)(n-s) >= VTY_BUFSIZ ) {
+		return -EOVERFLOW;
+	}
+
+	/* Sending *n = '\n', so: LEN = n - s + 1 .*/
+	len = (int)(long)( (unsigned long)n - (unsigned long)s ) + 1 ;
+	
+	/* we alway have a EOF at the end, so *n = '\n' is safety. */
+	if( *n != '\n' ) {
+		*n = '\n' ;
+	}
+	pe->cp += len ;
+
+	//PRINT("CP = %d, EP = %d", pe->cp, pe->ep );
+
+	*cmd = s; 
+	*siz = len ;
+	pe->count++;
+
+	return 0;
+}
+
+static int __cmd_next(struct thread *t)
+{
+	int   len =0;
+	int   ret =0;
+	char *cmd =NULL;
+	char prompt[128] ;
+	pipeexec_t * exe = THREAD_ARG(t) ;
+	vpipe_t * pipe = exe->pipe ;
+
+	exe->t_next = NULL ;
+	
+	ret = __cmd_get(exe, &cmd, &len) ;
+	if( ret != 0 ) {
+		// 
+		exit(0);
+	}
+
+	ret = writen(pipe->fd, cmd, len) ;
+	if( ret != len ) {
+		exit(1);
+	}
+
+	/* output command line */
+	
+	len = snprintf(prompt, sizeof(prompt), "%s@[%s]: %.*s", pipe->prefix, pipe->addr, len, cmd);
+	ret = writen(1, prompt, len) ;
+
+	fsync(pipe->fd);
+
+	return 0;
+}
+
+int __cmd_send(vpipe_t *pipe)
+{
+	int   len =0;
+	int   ret =0;
+	char *cmd =NULL;
+	char prompt[128] ;
+	struct vty * vty = pipe->vty;
+	pipeexec_t * exe = vty->index;
+
+	ret = __cmd_get(exe, &cmd, &len) ;
+	if( ret != 0 ) {
+		// 
+		exit(0);
+	}
+	
+	/* output command line */
+	ret = writen(pipe->fd, cmd, len) ;
+	//fsync(pipe->fd);
+	if( ret != len ) {
+		exit(1);
+	}
+
+	/* output command line */
+	len = snprintf(prompt, sizeof(prompt), "%s@[%s]: %.*s", pipe->prefix, pipe->addr, len, cmd);
+	ret = writen(1, prompt, len) ;
+
+	THREAD_TIMER_OFF(exe->t_next);
+	THREAD_TIMER_ON(exe->master, exe->t_next, __cmd_next, exe, 2);
+
+	usleep(50);
+
+	return 0;
+}
+
+int main(int ac, char * av[])
+{
+	int i;
+	vpipe_t * def = NULL ;
+	struct thread current;
+	const char * name = ttyname(0) ;
+
+	/* socket file decribtion */
+	for(i= sysconf(_SC_OPEN_MAX); i>=3; i--) {
+		close(i);
+	}
+	errno = 0 ;
+
+	zlog_default = openzlog("cli", ZLOG_CLI, LOG_CONS|LOG_NDELAY|LOG_PID, LOG_DAEMON);
+	zlog_set_level(zlog_default, ZLOG_DEST_SYSLOG, LOG_DEBUG);
+	zlog_set_level(zlog_default, ZLOG_DEST_STDOUT, LOG_DEBUG);
+
+	/* working directory */
+	snprintf(workdir, sizeof(workdir), "%s/%u", WORKDIR, getpid());
+	mkdir(workdir, 0755) ;
+	atexit(__destroy__);
+	if( 0 != chdir(workdir) ) {
+		printf("%% Failed to enter working path.");
+		return -2 ;
+	}
+
+	/* master */
+	master = thread_master_create();
+
+
+	/* check daemon */
+	if( ac > 1 ) {
+		if( 0 == strncasecmp(av[1], "am", 2) || 0 == strncasecmp(av[1], "vsm", 3) ) {
+			if( !(gVAMD = tmpl_connect(CLI_PATH_VAMD)) ) {
+				printf("Access manager not exist.\n");
+				return ENOENT;
+			}
+			def = gVAMD ;
+		}else if( 0 == strncasecmp(av[1],"cs",2) ) {
+			if( !(gVCSD = tmpl_connect(CLI_PATH_VCSD)) ) {
+				printf("Control server not exist.\n");
+				return ENOENT;
+			}
+			def = gVCSD ;
+		}
+	}
+	if( NULL == def ) {
+		def = gVCSD = tmpl_connect(CLI_PATH_VCSD);
+		if( NULL == def ) {
+			def = gVAMD = tmpl_connect(CLI_PATH_VAMD);
+			if( NULL == def ) {
+				printf("Neithor control server nor access manager exist.\n");
+				return ENOENT;
+			}
+		}
+	}
+	def = (!!gVCSD)? gVCSD : gVAMD ;
+
+	/* creating vty */	
+	if( NULL != name ) { /* Have ttyname(), valid login */
+		/* init */
+		cmd_init(1);
+		vty_init(master);
+		local_init(master);
+		tmpl_init();
+		sort_node();
+		
+		/* prepare CLI attribute */
+		host.advanced = 0 ;
+		host.enable   = "abloomy" ;
+		host.name = XSTRDUP(MTYPE_TMP, "IS") ;
+		host.motd = "\0" ;
+		
+		console = vty_console(name) ;
+		if( NULL == console ) {
+			PERROR("console");
+			return ENOMEM;
+		}
+		// bind 
+		tmpl_bind(console, def);
+	} else {             /* No ttyname(), it's a pipe call */
+		static pipeexec_t _pexec  = {
+			.cp = 0 , .ep = 0, .count =0, .in = 0, 
+		} ;
+		static struct vty _hidden = {
+			.fd = 1, 
+			.index = &_pexec,
+		} ;
+		set_nonblocking(0);
+		set_nonblocking(1);
+		def->vty = &_hidden ;
+		def->prompt = __cmd_send;
+		_pexec.master = master;
+		_pexec.pipe   = def ;
+	}
+
+	// main 
+	while( thread_fetch(master, &current) )
+		thread_call(&current) ;
+
+	return 0 ;
+}
