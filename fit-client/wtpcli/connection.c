@@ -57,7 +57,7 @@ int send_msg(int type,char* msg,int len,char* recv,int* recvlen)
     /* First set the URL that is about to receive our POST. This URL can
        just as well be a https:// URL if that is what should receive the
        data. */
-    sprintf(url,"http://www.ipyun.cc/m/%s",__url_key[type]);
+    sprintf(url,"http://www.ipyun.cc%s",__url_key[type]);
     curl_easy_setopt(curl, CURLOPT_URL,url);
     /* Now specify the POST data */
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, msg); //todo it.
@@ -73,6 +73,8 @@ int send_msg(int type,char* msg,int len,char* recv,int* recvlen)
       fprintf(stderr, "curl_easy_perform() failed: %s\n",
               curl_easy_strerror(res));
 //	fprintf(stderr,"I am here <%s>\n",buf);
+    *recvlen = strlen(buf);
+    memcpy(recv,buf,*recvlen);
 	
     /* always cleanup */
     curl_easy_cleanup(curl);

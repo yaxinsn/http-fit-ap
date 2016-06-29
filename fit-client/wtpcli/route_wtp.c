@@ -159,7 +159,8 @@ int prase_vpn_user_info(char* str,int id,char* ret_user,char* ret_pass)
     free_json(json_obj);
     return ret;
 }
-
+//#define LAN_PORT  "br-lan"
+#define LAN_PORT  "eth1"
 char* select_vpn_inner_ip()
 {
 
@@ -171,7 +172,7 @@ char* select_vpn_inner_ip()
     unsigned char* ip_x = 0;
     
                 // inet_ntoa("172.25.15.1",&ip);
-    ret = get_iface_ip("br-lan",&addr);
+    ret = get_iface_ip(LAN_PORT,&addr);
 	if(ret != 0)
 	{
 	    __log("get lan ip failed,vpn set default ip.\n");
@@ -221,40 +222,7 @@ int check_private_ip(struct in_addr ip)
         return 0;
     return 1; // 1 is public ip.
 }
-int  __set_pptpd_config_file_header()
-{
 
-
-    //char* remote_ip;
-	//int ret;
-
-#if 0
-    char wan_port[64]={0};
-	char cmd[256];
-	struct in_addr wan_addr;
-	ret = get_wan_port(wan_port);
-	if(ret != 0)
-	{
-	    __log("get wan port  failed!\n");
-	    return -1;
-	}
-	else
-	{
-           // printf("ret_port_name %p %s\n",wan_port,wan_port);
-	    __log(" wan port ::%s>\n",wan_port);
-	}
-	ret = get_iface_ip(wan_port,&wan_addr);
-	if(ret != 0)
-	{
-	    __log("get %s ip failed!\n",wan_port);
-	    return -1;
-	}
-#endif
-    //remote_ip = select_vpn_inner_ip();
-   // sprintf(cmd,"uci set pptpd.pptpd.localip=%s",inet_ntoa(wan_addr));
-   // system(cmd);
-    
-}
 int handle_getVPN_retsult(char* str)
 {
     const char* vpnList_value=0;
@@ -348,18 +316,12 @@ int test_json(char* str)
     return 0;
     
 }
-/**************************send msg, post msg***********************************************/
-int check_ip_type(
-	struct in_addr addr)
-{
-    return 1;// public ip
-    
-}
+
 
 /* get the version info  */
 int _check_version(void)
 {
-		char send_m[2000];
+	char send_m[2000];
 	char recv_m[2000];
     char wan_port[64]={0};
 	struct in_addr addr;
@@ -386,7 +348,6 @@ int _check_version(void)
 	    return -1;
 	}
 	
-		__log("_get_vpnlist :%d\n",__LINE__);
 	ret = get_iface_mac(wan_port,mac);
 	if(ret != 0)
 	{
@@ -401,12 +362,13 @@ int _check_version(void)
 	}
 		__log("_get_vpnlist :%d\n",__LINE__);
 	sprintf(send_m,"{\"ip\":\"%s\",\"netType\":\"%d\" ,\"mac\":\"%s\",\"ver\":\"%s\",\"board\":\"%s\"}",
-	    inet_ntoa(addr),check_ip_type(addr),mac_str,VERSION_WTP,"WE826");
+	    inet_ntoa(addr),check_private_ip(addr),mac_str,VERSION_WTP,"WE826");
 	
 	ret = send_msg(MSG_TYPE_GETVPN,send_m,strlen(send_m)+1,recv_m,&recv_len);
 	/* handler recv msg */
 	if(recv_len > 0)
 	{
+	    __log("%s:%d <%s>\n",__func__,__LINE__,recv_m);
 	    handler_getVer_retsult(recv_m);
 	}
 	return 0;
@@ -504,7 +466,6 @@ int get_new_task(struct thread* th)//get vpnlist when setup.
 	    return -1;
 	}
 	
-		__log("_get_vpnlist :%d\n",__LINE__);
 	ret = get_iface_mac(wan_port,mac);
 	if(ret != 0)
 	{
@@ -525,6 +486,7 @@ int get_new_task(struct thread* th)//get vpnlist when setup.
 	/* handler recv msg */
 	if(recv_len > 0)
 	{
+	    __log("%s:%d <%s>\n",__func__,__LINE__,recv_m);
 	    handler_getTask_retsult(recv_m);
 	}
 	return 0;
@@ -621,7 +583,6 @@ int _report_route_stat(void)
 	    return -1;
 	}
 	
-		__log("_get_vpnlist :%d\n",__LINE__);
 	ret = get_iface_mac(wan_port,mac);
 	if(ret != 0)
 	{
@@ -634,13 +595,14 @@ int _report_route_stat(void)
 	        mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
 	       // printf("mac_str %s\n",mac_str);
 	}
-		sprintf(send_m,"{\"ip\":\"%s\",\"cpuInfo\":\"%d\" ,\"memInfo\":\"%d\",\"WanInfo\":\"%d\"}",
-	    inet_ntoa(addr),check_ip_type(addr),mac_str,__get_cpu_info(),__get_mem_info(),__get_wan_info());
+		sprintf(send_m,"{\"ip\":\"%s\",\"mac\":\"%s\", \"cpuInfo\":\"%d\" ,\"memInfo\":\"%d\",\"WanInfo\":\"%d\"}",
+	    inet_ntoa(addr),mac_str,__get_cpu_info(),__get_mem_info(),__get_wan_info());
 	
 	ret = send_msg(MSG_TYPE_PUTROUTESTATE,send_m,strlen(send_m)+1,recv_m,&recv_len);
 	/* handler recv msg */
 	if(recv_len > 0)
 	{
+	    __log("%s:%d <%s>\n",__func__,__LINE__,recv_m);
 	    _report_route_stat_restult(recv_m);
 	}
 	return 0;
@@ -697,7 +659,6 @@ int _get_vpnlist(void)
 	    return -1;
 	}
 	
-		__log("_get_vpnlist :%d\n",__LINE__);
 	ret = get_iface_mac("eth1",mac);
 	if(ret != 0)
 	{
@@ -718,6 +679,7 @@ int _get_vpnlist(void)
 	ret = send_msg(MSG_TYPE_GETVPN,send_m,strlen(send_m)+1,recv_m,&recv_len);
 	if(recv_len >0)
 	{
+	    __log("%s:%d <%s>\n",__func__,__LINE__,recv_m);
 	    handle_getVPN_retsult(recv_m);
 	}
 	return ret;
@@ -738,7 +700,7 @@ int get_vpnlist(struct thread* th)//get vpnlist when setup.
 	}
 	else
 	{
-		__log("report_self is success!\n");
+		__log("get vpn list  is success!\n");
 		thread_add_timer(m,report_route_stat,m,5*60);// 5 minutes
 		thread_add_timer(m,check_version,m,10*60);// 10 minutes
 	}
