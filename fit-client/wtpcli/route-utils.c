@@ -160,7 +160,7 @@ json_object* create_sjon_from_string(char* str)
     
 }
 
-char* find_value_from_sjon_by_key(json_object* obj,char* skey)
+const char* find_value_from_sjon_by_key(json_object* obj,char* skey)
 {
    //return json_object_to_json_string(json_object_object_get(obj,skey));
    #if 1

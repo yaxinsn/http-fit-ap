@@ -14,20 +14,12 @@
 #include <utils/network.h>
 #include <time.h>
 #include "local.h"
+#include "route.h"
 
 #include <stdio.h>
 #include <curl/curl.h>
 
-enum msg_type {
-MSG_TYPE_GETVER=0,
-MSG_TYPE_GETVPN,
-MSG_TYPE_PUTROUTESTATE, //  == getcmd.
 
-MSG_TYPE_GETTASK,
-MSG_TYPE_PUT_USER_SEARCH_KEYS,
-	
-	
-};
 
 char* __url_key[]={
 	"/m/getVer",
@@ -54,6 +46,7 @@ int send_msg(int type,char* msg,int len,char* recv,int* recvlen)
   CURL *curl;
   CURLcode res;
   char buf[65535];
+  char url[256];
 
   /* In windows, this will init the winsock stuff */
   curl_global_init(CURL_GLOBAL_ALL);
@@ -64,7 +57,8 @@ int send_msg(int type,char* msg,int len,char* recv,int* recvlen)
     /* First set the URL that is about to receive our POST. This URL can
        just as well be a https:// URL if that is what should receive the
        data. */
-    curl_easy_setopt(curl, CURLOPT_URL, "http://ip.bj-ibook.cn/PutRouterInfo.jsp");
+    sprintf(url,"http://www.ipyun.cc/m/%s",__url_key[type]);
+    curl_easy_setopt(curl, CURLOPT_URL,url);
     /* Now specify the POST data */
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, msg); //todo it.
 
