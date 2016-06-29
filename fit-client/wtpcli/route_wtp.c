@@ -113,7 +113,7 @@ int handler_getVer_retsult(char* str)
     ver_v = find_value_from_sjon_by_key(json_obj,"ver");
     secretKey_v = find_value_from_sjon_by_key(json_obj,"secretKey");
     publicKey_v = find_value_from_sjon_by_key(json_obj,"publicKey");
-    __log("%s:%d ver=%s secretKey_v %s publicKey_v %s\n",__func__,__LINE__,ver_v,secretKey_v,publicKey_v);
+    __log("ver=%s secretKey_v %s publicKey_v %s\n",ver_v,secretKey_v,publicKey_v);
     /* save to global ver. */
     memset(g_wtp_ctx.ver,0,sizeof(g_wtp_ctx.ver));
     memcpy(g_wtp_ctx.ver,ver_v,strlen(ver_v));
@@ -315,7 +315,7 @@ cat pptpd
     system("touch /etc/config/pptpd");
     system("uci set pptpd.pptpd=service");
     
-    system("uci set pptpd.pptpd.enable=1");
+    system("uci set pptpd.pptpd.enabled=1");
     while(1)
     {
         i++;
@@ -693,7 +693,7 @@ int _get_vpnlist(void)
 	    return -1;
 	}
 	
-	ret = get_iface_mac("eth1",mac);
+	ret = get_iface_mac("eth0",mac);
 	if(ret != 0)
 	{
 	    __log("get_ %s mac failed!\n","eth1");
