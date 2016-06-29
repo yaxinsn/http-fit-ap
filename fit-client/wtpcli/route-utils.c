@@ -63,7 +63,7 @@ int read_route(char* ret_port_name)
 		
         if(d == 0) // i get it.
         {
-            printf(" ---- ret_port_name <%s> ret_port_name %p\n",ret_port_name,ret_port_name);
+           // printf(" ---- ret_port_name <%s> ret_port_name %p\n",ret_port_name,ret_port_name);
            // strncpy(ret_port_name,devname,32);
             //sprintf(ret_port_name,"%s",devname);
             fclose(fp);
@@ -80,7 +80,6 @@ int get_wan_port(char* ret_port_name)
     int ret;
             
     ret = read_route(ret_port_name);
-    printf(" ---- ret_port_name <%s> ret_port_name %p\n",ret_port_name,ret_port_name);
     return ret;
 }
 int get_iface_ip(char* name,struct in_addr* ip)
