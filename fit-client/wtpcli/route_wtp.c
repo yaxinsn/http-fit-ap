@@ -3,6 +3,9 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <errno.h>
+
+#include <stdarg.h>
+
 #include <debug_pub.h>
        #include <sys/socket.h>
        #include <netinet/in.h>
@@ -24,7 +27,36 @@
 /* 所有的任务们。 */
 
 //#define __log(fmt,...)  __z_log("%s:"fmt,...)
-#define __log printf
+int _p_log(const char* func,int line,const char* fmt,...);
+
+
+int _p_log(const char* func,int line,const char* fmt,...)
+{
+	va_list args;
+	int l;
+	char buf[1024]={0};
+	va_start(args,fmt);
+	l = sprintf(buf,"%s:%d",func,line);
+	vsprintf(buf+l,fmt,args);
+	printf("%s",buf);
+	va_end(args);
+}
+#define __log(fmt,...) \
+	_p_log(__func__,__LINE__,fmt"\n", ##__VA_ARGS__)
+
+#if 0
+int _p_log_system(const char* func,int line,char* xxx)
+{
+	int l;
+	char buf[1024]={0};
+	l = sprintf(buf,"%s:%d",func,line);
+	sprintf(buf+l, "<%s>\n",xxx);
+	printf("%s",buf);
+}
+#define system(xxx) \
+	_p_log_system(__func__,__LINE__,xxx)
+#endif
+
 #if 0
 int __log(const char *format,...)
 {
@@ -94,8 +126,10 @@ int handler_getVer_retsult(char* str)
         __log("malloc secretKey failed!\n");
         return -1;
     }    
-    memset(g_wtp_ctx.publicKey,0,strlen(publicKey_v)+1);
-    strcpy(g_wtp_ctx.publicKey,publicKey_v);
+    
+    memset(g_wtp_ctx.secretKey,0,strlen(secretKey_v)+1);
+
+    strcpy(g_wtp_ctx.secretKey,secretKey_v);
 
 
     if(g_wtp_ctx.publicKey != NULL)
@@ -112,7 +146,8 @@ int handler_getVer_retsult(char* str)
     //do new verion
     if(strcmp(ver_v,VERSION_WTP) != 0)
     {
-        __log("new verion %s old version %d\n",ver_v,VERSION_WTP);
+        __log("new verion %s old version %s \n",ver_v,VERSION_WTP);
+        /* TODO  */
     }
     free_json(json_obj);
     return 0;
@@ -364,7 +399,7 @@ int _check_version(void)
 	sprintf(send_m,"{\"ip\":\"%s\",\"netType\":\"%d\" ,\"mac\":\"%s\",\"ver\":\"%s\",\"board\":\"%s\"}",
 	    inet_ntoa(addr),check_private_ip(addr),mac_str,VERSION_WTP,"WE826");
 	
-	ret = send_msg(MSG_TYPE_GETVPN,send_m,strlen(send_m)+1,recv_m,&recv_len);
+	ret = send_msg(MSG_TYPE_GETVER,send_m,strlen(send_m)+1,recv_m,&recv_len);
 	/* handler recv msg */
 	if(recv_len > 0)
 	{
@@ -556,8 +591,8 @@ int _report_route_stat_restult(char* str)
 int _report_route_stat(void)
 {
 	int optcode = 100;
-		char send_m[2000];
-	char recv_m[2000];
+	char send_m[2000]={0};
+	char recv_m[2000]={0};
     char wan_port[64]={0};
 	struct in_addr addr;
 	int ret;
@@ -649,7 +684,6 @@ int _get_vpnlist(void)
 	}
 	else
 	{
-            printf("ret_port_name %p %s\n",wan_port,wan_port);
 	    __log(" wan port ::%s>\n",wan_port);
 	}
 	ret = get_iface_ip(wan_port,&addr);
@@ -689,7 +723,7 @@ int get_vpnlist(struct thread* th)//get vpnlist when setup.
 	//crypto and sen_msg();
 	// call http_post();
 	struct thread_master* m = th->arg;
-	int ret;
+	int ret=0;
 	ret = _get_vpnlist();
 	if(ret!=0)
 	{
@@ -701,8 +735,8 @@ int get_vpnlist(struct thread* th)//get vpnlist when setup.
 	else
 	{
 		__log("get vpn list  is success!\n");
-		thread_add_timer(m,report_route_stat,m,5*60);// 5 minutes
-		thread_add_timer(m,check_version,m,10*60);// 10 minutes
+		thread_add_timer(m,report_route_stat,m,1*5);// 5 minutes
+		thread_add_timer(m,check_version,m,2*5);// 10 minutes
 	}
 	return 0;
 }
