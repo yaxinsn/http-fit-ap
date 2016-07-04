@@ -83,6 +83,8 @@ struct wtp_ctx
     char padd[4];
     char* secretKey;
     char* publicKey;
+    int   lan_low_traffic;
+    uint8_t wan_usage;
 };
 
 struct wtp_ctx  g_wtp_ctx;
@@ -293,14 +295,12 @@ int handle_getVPN_retsult(char* str)
 	struct in_addr addr; 
     char* remote_ip_str;
     json_object* json_obj = create_sjon_from_string(str);
-    __log(" create vpn str fo sjon");
+    
     vpnList_value = find_value_from_sjon_by_key(json_obj,"vpnList");
     if(!vpnList_value){
         __log("getVPN : sjon not find vpnList");
         return -1;
     }
-    
-    __log(" create vpn str fo sjon");
    // printf("%s:%d  vpnList_value = %s\n",__func__,__LINE__,vpnList_value);
 
  #if 0   
@@ -343,8 +343,6 @@ cat pptpd
     system("uci set pptpd.pptpd=service");
     
     system("uci set pptpd.pptpd.enabled=1");
-    
-    __log("uci set pptpd.pptpd.enabled=1");
     while(1)
     {
         i++;
@@ -597,18 +595,95 @@ int _report_route_stat_operation(int optcode)
 	return 0;
 }
 
-int __get_cpu_info()
+unsigned long __get_lan_rx_traffic(void)/* client tx and route rx from lan. */
 {
-	return 10;
+
+    static unsigned long rx_pkts = 0;
+    struct ifinfo ifc;
+    unsigned long traffic = 0;
+    int ret = get_net_dev_stat("br-lan",&ifc);
+    if(ret >=0)
+    {
+        traffic = ifc.r_pkt - rx_pkts;
+        rx_pkts = ifc.r_pkt;
+    }
+    else
+        return 0xffffffff;
+        
+    return traffic;
+    
 }
-int __get_wan_info()
+int task_get_lan_rx(struct thread* th)
 {
-	return 20;
+
+	struct thread_master* m = th->arg;
+	unsigned long ret=0;
+	ret = __get_lan_rx_traffic();
+    if(ret == 0xffffffff)
+    {
+        __log("get lan rx_traffic failed!");
+    }
+    else
+    {
+        if(ret <= 100)
+            g_wtp_ctx.lan_low_traffic = 1;
+        else
+            g_wtp_ctx.lan_low_traffic = 0;
+    }
+    
+	thread_add_timer(m,task_get_lan_rx,m, 1*60);
+	return 0;
 }
-int __get_mem_info()
+unsigned long __get_wan_rx_traffic_usage(void)/* client tx and route rx from lan. */
 {
-	return 30;
+
+    static unsigned long r_bytes = 0;
+    struct ifinfo ifc;
+    
+    int ret = 0;
+    unsigned long traffic = 0;
+    char* wan_port[32];
+   
+    ret = get_wan_port(wan_port);
+    if(ret < 0)
+    {
+        return 0;
+    }
+    ret = get_net_dev_stat(wan_port,&ifc);
+    if(ret >= 0)
+    {
+        traffic = ifc.r_bytes - r_bytes;
+        r_bytes = ifc.r_bytes;
+    }
+    else
+        return 0;
+        
+    return traffic;
+    
 }
+int task_get_wan_rx(struct thread* th)
+{
+
+	struct thread_master* m = th->arg;
+	unsigned long ret=0;
+	ret = __get_wan_rx_traffic_usage();
+	int base = 100*1000*1000;
+	
+    if(ret == 0)
+    {
+        __log("get lan rx_traffic failed!");
+    }
+    else
+    {
+            g_wtp_ctx.wan_usage = (ret*8)/base;
+     
+    }
+    
+	thread_add_timer(m,task_get_wan_rx,m, 1*60);
+	return 0;
+}
+
+
 int _report_route_stat_restult(char* str)
 {
     char* rspcode_j=0;
@@ -690,7 +765,7 @@ int _report_route_stat(void)
 	       // printf("mac_str %s\n",mac_str);
 	}
 		sprintf(send_m,"{\"ip\":\"%s\",\"mac\":\"%s\", \"cpuInfo\":\"%d\" ,\"memInfo\":\"%d\",\"WanInfo\":\"%d\"}",
-	    inet_ntoa(addr),mac_str,__get_cpu_info(),__get_mem_info(),__get_wan_info());
+	    inet_ntoa(addr),mac_str,get_cpu_usage(),get_memory_usage(),g_wtp_ctx.wan_usage);
 	
 	ret = send_msg(MSG_TYPE_PUTROUTESTATE,send_m,strlen(send_m)+1,recv_m,&recv_len);
 	/* handler recv msg */
@@ -801,10 +876,11 @@ int get_vpnlist(struct thread* th)//get vpnlist when setup.
 }
 int route_wtp_init(struct thread_master* m)
 {
-	g_wtp_ctx.m= m;
+	g_wtp_ctx.m = m;
     //test_json_vpnlists(NULL);
-		thread_add_timer(m,get_vpnlist,m,3);// 3 sec
-
+	thread_add_timer(m,get_vpnlist,m,3);// 3 sec
+    thread_add_timer(m,task_get_lan_rx,m,1);        
+	thread_add_timer(m,task_get_wan_rx,m, 1*60);
 	return 0;
 		
 }
