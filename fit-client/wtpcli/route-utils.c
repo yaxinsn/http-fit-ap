@@ -173,8 +173,42 @@ const char* find_value_from_sjon_by_key(json_object* obj,char* skey)
   return NULL;
   #endif
 }
-
 void free_json(json_object* obj)
 {
     json_object_put(obj);
+}
+
+char* find_value_from_sjon_by_key2(json_object* obj,char* skey)
+{
+    char* v_b=0;
+    const char* v_j;
+    
+  json_object_object_foreach(obj, key, val) {
+      if(!strcmp(skey,key)){
+          v_j = json_object_to_json_string(val);            
+          v_b = malloc(strlen(v_j)+1);
+          if(v_b){
+            memset(v_b,0,strlen(v_j)+1);
+            strncpy(v_b,v_j,strlen(v_j));
+          }
+          return v_b;
+      }
+  }
+  return NULL;
+  
+}
+
+
+char* skip_str_prefix(char* src,char c)
+{
+    char* data = src;
+    char* tail = src+strlen(src)-1;
+    while(*data == c)
+        data++;
+        
+    while(*tail == c )
+        tail--;
+		
+    *(tail+1)=0;
+    return data;
 }

@@ -80,6 +80,9 @@ int send_msg(int type,char* msg,int len,char* recv,int* recvlen)
     curl_easy_cleanup(curl);
   }
   curl_global_cleanup();
+  
+  if(res != CURLE_OK)
+    return -1;
   return 0;
 }
 

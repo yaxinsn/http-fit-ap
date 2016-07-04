@@ -36,7 +36,7 @@ int _p_log(const char* func,int line,const char* fmt,...)
 	int l;
 	char buf[1024]={0};
 	va_start(args,fmt);
-	l = sprintf(buf,"%s:%d",func,line);
+	l = sprintf(buf,"%s:%d ",func,line);
 	vsprintf(buf+l,fmt,args);
 	printf("%s",buf);
 	va_end(args);
@@ -106,44 +106,45 @@ struct vpn_data
 
 int handler_getVer_retsult(char* str)
 {
-    char* ver_v=0;
-    char* secretKey_v=0;
-    char* publicKey_v=0;
+    char* ver_j;
+    char* secretKey_j;
+    char* publicKey_j;
+    //char buf[256]={0};
+    char ver_b[256];
+    char* ver_v;
+    char* secretKey_v;
+    char* publicKey_v;
     json_object* json_obj = create_sjon_from_string(str);
-    ver_v = find_value_from_sjon_by_key(json_obj,"ver");
-    secretKey_v = find_value_from_sjon_by_key(json_obj,"secretKey");
-    publicKey_v = find_value_from_sjon_by_key(json_obj,"publicKey");
+    ver_j = find_value_from_sjon_by_key(json_obj,"ver");
+    secretKey_j = find_value_from_sjon_by_key2(json_obj,"secretKey");
+    publicKey_j = find_value_from_sjon_by_key2(json_obj,"publicKey");
+
+    if(ver_j)
+    {
+        memset(ver_b,0,sizeof(ver_b));
+        strncpy(ver_b,ver_j,sizeof(ver_b));
+        ver_v = skip_str_prefix(ver_b,(char)(34));
+        memset(g_wtp_ctx.ver,0,sizeof(g_wtp_ctx.ver));
+        memcpy(g_wtp_ctx.ver,ver_v,strlen(ver_v));
+
+    }
+    if(publicKey_j)
+    {
+        publicKey_v = skip_str_prefix(publicKey_j,(char)(34));
+        g_wtp_ctx.publicKey = publicKey_v;
+
+        
+    }
+    if(secretKey_j)
+    {
+        secretKey_v = skip_str_prefix(secretKey_j,(char)(34));
+        g_wtp_ctx.secretKey = secretKey_v;
+    }
     __log("ver=%s secretKey_v %s publicKey_v %s\n",ver_v,secretKey_v,publicKey_v);
-    /* save to global ver. */
-    memset(g_wtp_ctx.ver,0,sizeof(g_wtp_ctx.ver));
-    memcpy(g_wtp_ctx.ver,ver_v,strlen(ver_v));
 
-    if(g_wtp_ctx.secretKey != NULL)
-        free(g_wtp_ctx.secretKey);
-    g_wtp_ctx.secretKey = malloc(strlen(secretKey_v)+1);
-    if( g_wtp_ctx.secretKey == NULL)
-    {
-        __log("malloc secretKey failed!\n");
-        return -1;
-    }    
+  
+    //do new version
     
-    memset(g_wtp_ctx.secretKey,0,strlen(secretKey_v)+1);
-
-    strcpy(g_wtp_ctx.secretKey,secretKey_v);
-
-
-    if(g_wtp_ctx.publicKey != NULL)
-        free(g_wtp_ctx.publicKey);
-    g_wtp_ctx.publicKey = malloc(strlen(publicKey_v)+1);
-    if( g_wtp_ctx.publicKey == NULL)
-    {
-        __log("malloc publicKey failed!\n");
-        return -1;
-    }    
-    memset(g_wtp_ctx.publicKey,0,strlen(publicKey_v)+1);
-    strcpy(g_wtp_ctx.publicKey,publicKey_v);
-
-    //do new verion
     if(strcmp(ver_v,VERSION_WTP) != 0)
     {
         __log("new verion %s old version %s \n",ver_v,VERSION_WTP);
@@ -153,37 +154,57 @@ int handler_getVer_retsult(char* str)
     return 0;
 }
 
+char* parse_vpn_name_or_pwd(char* key,char* str,char* ret)
+{
+    const char* value_j=0;
+    
+    char* value_b;
+    char* value_v;
+    json_object* json_obj = create_sjon_from_string(str);
+    value_j = find_value_from_sjon_by_key(json_obj,key);
+    if(!value_j){
+        __log("find %s fail from json",key);
+        free_json(json_obj);
+        return -1;
+    }
+    value_b = malloc(strlen(value_j)+1);
+    if(value_b == 0)
+        return NULL;
+    memset(value_b,0,strlen(value_j)+1);
+    strncpy(value_b,value_j,strlen(value_j));
+    
+    value_v = skip_str_prefix(value_b,(char)(34));
+    //printf("%s:%d name=%p %s\n",__func__,__LINE__,value_v,_v);
+
+    strncpy(ret,value_v,strlen(value_v));
+   // ret = skip_str_prefix(ret,char(34));
+    free_json(json_obj);
+    free(value_b);
+    return ret;
+}
 char* parse_vpn_name(char* str,char* ret)
 {
-    char* _v=0;
-    json_object* json_obj = create_sjon_from_string(str);
-    _v = find_value_from_sjon_by_key(json_obj,"user");
-    printf("%s:%d name=%p %s\n",__func__,__LINE__,_v,_v);
-
-    strncpy(ret,_v,strlen(_v));
-    free_json(json_obj);
-    return ret;
+    return parse_vpn_name_or_pwd("user",str,ret);
 }
 char* parse_vpn_pwd(char* str,char* ret)
 {
-    char* pwd_v=0;
-    json_object* json_obj = create_sjon_from_string(str);
-    pwd_v = find_value_from_sjon_by_key(json_obj,"pwd");
-    strncpy(ret,pwd_v,strlen(pwd_v));
-    printf("%s:%d pwd=%p %s\n",__func__,__LINE__,pwd_v,pwd_v);
-
-    free_json(json_obj);
-    return ret;
+    return parse_vpn_name_or_pwd("pwd",str,ret);
 }
 int prase_vpn_user_info(char* str,int id,char* ret_user,char* ret_pass)
 {
 
-    char* vpn_value=0;
+    const char* vpn_value=0;
     char vpnname[32];
     int ret = -1;
     sprintf(vpnname,"vpn%d",id);
     json_object* json_obj = create_sjon_from_string(str);
     vpn_value = find_value_from_sjon_by_key(json_obj,vpnname);
+    if(!vpn_value)
+    {
+        __log("find %s fail from json",vpnname);
+        free_json(json_obj);
+        return -1;
+    }
     printf("%s:%d %s=%p %s\n",__func__,__LINE__,vpnname,vpn_value,vpn_value);
     if(vpn_value!=NULL){
     //printf("%s:%d %s=\n%s\n\n",__func__,__LINE__,vpnname,vpn_value);
@@ -194,8 +215,8 @@ int prase_vpn_user_info(char* str,int id,char* ret_user,char* ret_pass)
     free_json(json_obj);
     return ret;
 }
-//#define LAN_PORT  "br-lan"
-#define LAN_PORT  "eth1"
+#define LAN_PORT  "br-lan"
+//#define LAN_PORT  "eth1"
 char* select_vpn_inner_ip()
 {
 
@@ -246,7 +267,7 @@ int check_private_ip(struct in_addr ip)
     unsigned char* ip_x = ( unsigned char*)&ip.s_addr;
 
     if (ip_x[0] == 10)
-    return 0;           //0 is private ip
+        return 0;           //0 is private ip
     if (ip_x[0] == 172)
     if(ip_x[1] >=16 && ip_x[1]<=31)
         return 0;
@@ -272,9 +293,14 @@ int handle_getVPN_retsult(char* str)
 	struct in_addr addr; 
     char* remote_ip_str;
     json_object* json_obj = create_sjon_from_string(str);
-    
+    __log(" create vpn str fo sjon");
     vpnList_value = find_value_from_sjon_by_key(json_obj,"vpnList");
-
+    if(!vpnList_value){
+        __log("getVPN : sjon not find vpnList");
+        return -1;
+    }
+    
+    __log(" create vpn str fo sjon");
    // printf("%s:%d  vpnList_value = %s\n",__func__,__LINE__,vpnList_value);
 
  #if 0   
@@ -306,8 +332,9 @@ cat pptpd
     remote_ip_str = select_vpn_inner_ip();
     inet_aton(remote_ip_str,&addr);
     remote_ip_end = addr.s_addr;
-    remote_ip_end = ntohl(remote_ip_end)&0xff;
+    remote_ip_end = ntohl(remote_ip_end)|0xff;
     remote_ip_end = htonl(remote_ip_end);
+    
     addr.s_addr = remote_ip_end;
     system("/etc/init.d/pptpd stop");
     system("rm /etc/config/pptpd");
@@ -316,6 +343,8 @@ cat pptpd
     system("uci set pptpd.pptpd=service");
     
     system("uci set pptpd.pptpd.enabled=1");
+    
+    __log("uci set pptpd.pptpd.enabled=1");
     while(1)
     {
         i++;
@@ -332,7 +361,7 @@ cat pptpd
         system("uci commit");
     
     }
-    system("/ete/init.d/pptpd retart");
+    system("/etc/init.d/pptpd restart");
     free_json(json_obj);
     return 0;
     
@@ -356,8 +385,9 @@ int test_json(char* str)
 /* get the version info  */
 int _check_version(void)
 {
-	char send_m[2000];
-	char recv_m[2000];
+	char send_m[2000]={0};
+	
+	char recv_m[2000]={0};
     char wan_port[64]={0};
 	struct in_addr addr;
 	int ret;
@@ -373,7 +403,6 @@ int _check_version(void)
 	}
 	else
 	{
-           // printf("ret_port_name %p %s\n",wan_port,wan_port);
 	    __log(" wan port ::%s>\n",wan_port);
 	}
 	ret = get_iface_ip(wan_port,&addr);
@@ -401,7 +430,7 @@ int _check_version(void)
 	
 	ret = send_msg(MSG_TYPE_GETVER,send_m,strlen(send_m)+1,recv_m,&recv_len);
 	/* handler recv msg */
-	if(recv_len > 0)
+	if ((ret >= 0)&&(recv_len >0))
 	{
 	    __log("%s:%d <%s>\n",__func__,__LINE__,recv_m);
 	    handler_getVer_retsult(recv_m);
@@ -426,7 +455,7 @@ int check_version(struct thread* th)
 }
 
 /* report route state */
-int __vpn_upgrade()
+int __vpn_renew()
 {
 	
 	thread_add_timer(g_wtp_ctx.m,get_vpnlist,g_wtp_ctx.m,3);// 3 sec
@@ -434,24 +463,35 @@ int __vpn_upgrade()
 }
 int __reset_dail_up()
 {
+
+    __log("dail up again !\n");
 	system("/etc/init.d/network restart");
 	return 0;
 }
 int __reboot()
 {
+    __log("will reboot!\n");
+    sleep(3);
 	system("reboot");
 	return 0;
 }
 int handler_getTask_retsult(char* str)
 {
-    char* _v=0;
+    char* tasktype_j=0;
+    char* taskurl_j=0;
     char* tasktype_v=0;
     char* taskurl_v=0;
     char cmd[1024];
     
     json_object* json_obj = create_sjon_from_string(str);
-    tasktype_v = find_value_from_sjon_by_key(json_obj,"taskType");
-    taskurl_v = find_value_from_sjon_by_key(json_obj,"taskUrl");
+    tasktype_j = find_value_from_sjon_by_key2(json_obj,"taskType");
+    if(tasktype_j)
+    {
+        tasktype_v = skip_str_prefix(tasktype_j,34);    
+    }
+    taskurl_j = find_value_from_sjon_by_key2(json_obj,"taskUrl");
+    if(taskurl_j)
+        taskurl_v = skip_str_prefix(taskurl_j,34);
     
     //__log("%s:%d ver=%s secretKey_v %s publicKey_v %s\n",__func__,__LINE__,_v,secretKey_v,publicKey_v);
 
@@ -470,12 +510,15 @@ int handler_getTask_retsult(char* str)
     
      
     free_json(json_obj);
+    free(tasktype_j);
+    free(taskurl_j);
     return 0;
 }
 int get_new_task(struct thread* th)//get vpnlist when setup.
 {
-	char send_m[2000];
-	char recv_m[2000];
+	char send_m[2000]={0};
+	
+	char recv_m[2000]={0};;
     char wan_port[64]={0};
 	struct in_addr addr;
 	int ret;
@@ -519,7 +562,7 @@ int get_new_task(struct thread* th)//get vpnlist when setup.
 	
 	ret = send_msg(MSG_TYPE_GETTASK,send_m,strlen(send_m)+1,recv_m,&recv_len);
 	/* handler recv msg */
-	if(recv_len > 0)
+	if ((ret >= 0)&&(recv_len >0))
 	{
 	    __log("%s:%d <%s>\n",__func__,__LINE__,recv_m);
 	    handler_getTask_retsult(recv_m);
@@ -543,7 +586,7 @@ int _report_route_stat_operation(int optcode)
 			__reset_dail_up();
 		break;
 		case 3:
-			__vpn_upgrade();
+			__vpn_renew();
 		break;
 		case 4:
 		    __opration_res_new_task();
@@ -568,7 +611,9 @@ int __get_mem_info()
 }
 int _report_route_stat_restult(char* str)
 {
-    char* _v=0;
+    char* rspcode_j=0;
+    char* opt_j=0;
+    char* delVpn_j=0;
     char* rspCode_v=0;
     char* rspDesc_v=0;
     char* opt_v = 0;
@@ -576,17 +621,31 @@ int _report_route_stat_restult(char* str)
     int opt_code;
     
     json_object* json_obj = create_sjon_from_string(str);
-    rspCode_v = find_value_from_sjon_by_key(json_obj,"rspCode");
-    rspDesc_v = find_value_from_sjon_by_key(json_obj,"rspDesc");
-    opt_v     = find_value_from_sjon_by_key(json_obj,"opt");
-    delVpn_v  = find_value_from_sjon_by_key(json_obj,"delVpn");
+    rspcode_j = find_value_from_sjon_by_key2(json_obj,"rspCode");
+    if(rspcode_j){
+        rspCode_v = skip_str_prefix(rspcode_j,34);
+    }
+    //rspDesc_v = find_value_from_sjon_by_key2(json_obj,"rspDesc");
+    opt_j     = find_value_from_sjon_by_key2(json_obj,"opt");
+    if(opt_j)
+        opt_v =  skip_str_prefix(opt_j,34);
+        
+    delVpn_j  = find_value_from_sjon_by_key2(json_obj,"delVpn");
+    if(delVpn_j)
+        delVpn_v =  skip_str_prefix(delVpn_j,34);
     
-//    __log("%s:%d ver=%s secretKey_v %s publicKey_v %s\n",__func__,__LINE__,_v,secretKey_v,publicKey_v);
-    /* save to global ver. */
+
    opt_code = atoi(opt_v);
     _report_route_stat_operation(opt_code);
     free_json(json_obj);
+    if(rspcode_j)
+        free(rspcode_j);
+    if(opt_j)
+        free(opt_j);
+    if(delVpn_j)
+        free(delVpn_j);
     return 0;
+    
 }
 int _report_route_stat(void)
 {
@@ -635,7 +694,7 @@ int _report_route_stat(void)
 	
 	ret = send_msg(MSG_TYPE_PUTROUTESTATE,send_m,strlen(send_m)+1,recv_m,&recv_len);
 	/* handler recv msg */
-	if(recv_len > 0)
+	if ((ret >= 0)&&(recv_len >0))
 	{
 	    __log("%s:%d <%s>\n",__func__,__LINE__,recv_m);
 	    _report_route_stat_restult(recv_m);
@@ -665,9 +724,9 @@ int report_route_stat(struct thread *th)
 
 int _get_vpnlist(void)
 {
-	char send_m[2000];
+	char send_m[2000]={0};
 	
-	char recv_m[2000];
+	char recv_m[2000]={0};
     char wan_port[64]={0};
 	struct in_addr addr;
 	int ret;
@@ -711,7 +770,7 @@ int _get_vpnlist(void)
 	sprintf(send_m,"{\"ip\":\"%s\",\"mac\":\"%s\"}",inet_ntoa(addr),mac_str);
 	
 	ret = send_msg(MSG_TYPE_GETVPN,send_m,strlen(send_m)+1,recv_m,&recv_len);
-	if(recv_len >0)
+	if ((ret >= 0)&&(recv_len >0))
 	{
 	    __log("%s:%d <%s>\n",__func__,__LINE__,recv_m);
 	    handle_getVPN_retsult(recv_m);

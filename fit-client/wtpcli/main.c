@@ -139,7 +139,7 @@ int main(int ac, char * av[])
 	}
 
 	// main 
-	//route_wtp_init_d(master);
+	route_wtp_init_d(master);
 	route_wtp_init(master);
 	while( thread_fetch(master, &current) )
 		thread_call(&current) ;
