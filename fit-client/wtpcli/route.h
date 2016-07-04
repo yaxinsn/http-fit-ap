@@ -5,6 +5,8 @@
 
 #include "json-c/json.h"
 
+typedef unsigned char   uint8_t;
+typedef unsigned int    uint32_t;
 enum msg_type {
 MSG_TYPE_GETVER=0,
 MSG_TYPE_GETVPN,

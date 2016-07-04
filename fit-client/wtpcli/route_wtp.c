@@ -75,7 +75,12 @@ int __log(const char *format,...)
 #endif
 
 #define VERSION_WTP "1.0.0"
-
+struct wtp_base_info
+{
+    char wanport[32];
+    u8   mac[6];
+    struct in_addr wanip;
+};
 struct wtp_ctx
 {
     struct thread_master* m;
@@ -83,8 +88,11 @@ struct wtp_ctx
     char padd[4];
     char* secretKey;
     char* publicKey;
+    
     int   lan_low_traffic;
     uint8_t wan_usage;
+    
+    struct wtp_base_info binfo;
 };
 
 struct wtp_ctx  g_wtp_ctx;
@@ -751,6 +759,14 @@ int _report_route_stat(void)
 	    __log("get %s ip failed!\n",wan_port);
 	    return -1;
 	}
+
+	
+	if(g_wtp_ctx.binfo.wanip.s_addr != addr.s_addr)
+	{
+	    
+	    thread_add_timer(g_wtp_ctx.m,get_vpnlist,g_wtp_ctx.m,5);// 5 sec
+	    g_wtp_ctx.binfo.wanip.s_addr = addr.s_addr;
+	}
 	
 	ret = get_iface_mac(wan_port,mac);
 	if(ret != 0)
@@ -874,13 +890,78 @@ int get_vpnlist(struct thread* th)//get vpnlist when setup.
 	}
 	return 0;
 }
+
+int _get_base_info(struct wtp_base_info* binfo)
+{
+    char            wan_port[64]={0};
+	struct in_addr  addr;
+	int             ret;
+	int             recv_len;
+	u8              mac[6];
+	char            mac_str[32];
+	
+		
+	ret = get_wan_port(wan_port);
+	if(ret != 0)
+	{
+	    __log("get wan port  failed!\n");
+	    return -1;
+	}
+	else
+	{
+	    __log(" wan port ::%s>\n",wan_port);
+    	strncpy(binfo->wanport,wan_port,strlen(wan_port));
+	}
+	
+	ret = get_iface_ip(wan_port,&addr);
+	if(ret != 0)
+	{
+	    __log("get_ %s ip failed!\n",wan_port);
+	    return -1;
+	}
+    binfo->wanip.s_addr = addr.s_addr;
+	
+	ret = get_iface_mac("eth0",mac);
+	if(ret != 0)
+	{
+	    __log("get_ %s mac failed!\n","eth1");
+	    return -1;
+	}
+	else
+	{
+	    
+    	memcpy(binfo->mac,mac,sizeof(mac));
+    	
+	    sprintf(mac_str,"%02X:%02X:%02X:%02X:%02X:%02X",
+	        mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
+	       // printf("mac_str %s\n",mac_str);
+	}
+	return 0;
+}
+
+int task_get_baseinfo(struct thread* th)
+{
+    
+	struct thread_master* m = th->arg;
+	if(0 !=_get_base_info(&g_wtp_ctx.binfo))
+	{
+	    
+    	thread_add_timer(m,task_get_baseinfo,m,60);// 60 sec
+	}
+	else
+	{
+	    thread_add_timer(m,get_vpnlist,m,3);// 3 sec
+        thread_add_timer(m,task_get_lan_rx,m,1);        
+	    thread_add_timer(m,task_get_wan_rx,m, 1*60);  
+	}
+}
 int route_wtp_init(struct thread_master* m)
 {
 	g_wtp_ctx.m = m;
-    //test_json_vpnlists(NULL);
+	
+	    
 	thread_add_timer(m,get_vpnlist,m,3);// 3 sec
-    thread_add_timer(m,task_get_lan_rx,m,1);        
-	thread_add_timer(m,task_get_wan_rx,m, 1*60);
+    //test_json_vpnlists(NULL);
 	return 0;
 		
 }
