@@ -273,7 +273,7 @@ uint8_t get_memory_usage(void)
     fgets(line,len,fp);
     sscanf(line,"MemFree:%d kB", &mem_free);
 
-	printf("tttt mem_free  %d mem_total %d \n",mem_free,mem_total);
+	//printf("tttt mem_free  %d mem_total %d \n",mem_free,mem_total);
     usage = (uint8_t)(100*(mem_total - mem_free)/mem_total);
     //*remain = mem_free;
     fclose(fp);
@@ -307,7 +307,7 @@ int get_cpu_usage(void)
 	sscanf(line,"cpu %lu %lu %lu %lu %lu %lu %lu", 
 		&user,&nice,&system,&idle,&iowait,&irq,&softirq);
 	all = user+nice+system+iowait+irq+softirq+idle;
-	printf("all %lu ,idle %lu old_all %lu old_idle %lu\n",all,idle,old_all,old_idle);
+	//printf("all %lu ,idle %lu old_all %lu old_idle %lu\n",all,idle,old_all,old_idle);
 
     ret = 100 - (int)(((idle - old_idle)*100)/(all - old_all));
   

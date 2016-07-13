@@ -29,11 +29,6 @@ char* __url_key[]={
 	"/m/putkeys"
 };
 
-int __send_msg()
-{
-
-	return 0;	
-}
 
 
 static size_t function( void *ptr, size_t size, size_t nmemb, void *stream)
@@ -45,8 +40,8 @@ int send_msg(int type,char* msg,int len,char* recv,int* recvlen)
 {
   CURL *curl;
   CURLcode res;
-  char buf[65535];
-  char url[256];
+  char buf[10240] = {0};
+  char url[128];
 
   /* In windows, this will init the winsock stuff */
   curl_global_init(CURL_GLOBAL_ALL);
@@ -64,7 +59,6 @@ int send_msg(int type,char* msg,int len,char* recv,int* recvlen)
 
     /* Perform the request, res will get the return code */
 	
-	//fprintf(stdout,"I am here lala\n");
 	 curl_easy_setopt(curl,CURLOPT_WRITEFUNCTION,function);
 	 curl_easy_setopt(curl,CURLOPT_WRITEDATA,buf);
     res = curl_easy_perform(curl);

@@ -38,7 +38,7 @@ int _p_log(const char* func,int line,const char* fmt,...)
 	va_start(args,fmt);
 	l = sprintf(buf,"%s:%d ",func,line);
 	vsprintf(buf+l,fmt,args);
-	printf("%s",buf);
+	fprintf(stdout,"%s",buf);
 	va_end(args);
 }
 #define __log(fmt,...) \
@@ -53,7 +53,7 @@ int _p_log_system(const char* func,int line,char* xxx)
 	sprintf(buf+l, "<%s>\n",xxx);
 	printf("%s",buf);
 }
-#define system(xxx) \
+#define __system(xxx) \
 	_p_log_system(__func__,__LINE__,xxx)
 #endif
 
@@ -84,6 +84,7 @@ struct wtp_base_info
 struct wtp_ctx
 {
     struct thread_master* m;
+    char curr_ver[32];
     char ver[32];
     char padd[4];
     char* secretKey;
@@ -113,6 +114,13 @@ struct vpn_data
     char* name;
     char* pwd;
 };
+
+#define __system(cmd)   do{ \
+    __log("do system cmd: %s",cmd); \
+    system(cmd);        \
+    }while(0);
+
+
 
 int handler_getVer_retsult(char* str)
 {
@@ -150,14 +158,14 @@ int handler_getVer_retsult(char* str)
         secretKey_v = skip_str_prefix(secretKey_j,(char)(34));
         g_wtp_ctx.secretKey = secretKey_v;
     }
-    __log("ver=%s secretKey_v %s publicKey_v %s\n",ver_v,secretKey_v,publicKey_v);
+    __log("ver=%s secretKey_v %s publicKey_v %s .",ver_v,secretKey_v,publicKey_v);
 
   
     //do new version
     
     if(strcmp(ver_v,VERSION_WTP) != 0)
     {
-        __log("new verion %s old version %s \n",ver_v,VERSION_WTP);
+        __log("new verion %s old version %s ",ver_v,VERSION_WTP);
         /* TODO  */
     }
     free_json(json_obj);
@@ -184,7 +192,6 @@ char* parse_vpn_name_or_pwd(char* key,char* str,char* ret)
     strncpy(value_b,value_j,strlen(value_j));
     
     value_v = skip_str_prefix(value_b,(char)(34));
-    //printf("%s:%d name=%p %s\n",__func__,__LINE__,value_v,_v);
 
     strncpy(ret,value_v,strlen(value_v));
    // ret = skip_str_prefix(ret,char(34));
@@ -211,13 +218,12 @@ int prase_vpn_user_info(char* str,int id,char* ret_user,char* ret_pass)
     vpn_value = find_value_from_sjon_by_key(json_obj,vpnname);
     if(!vpn_value)
     {
-        __log("find %s fail from json",vpnname);
+        __log("find %s fail from json and return -1;",vpnname);
         free_json(json_obj);
         return -1;
     }
-    printf("%s:%d %s=%p %s\n",__func__,__LINE__,vpnname,vpn_value,vpn_value);
+    printf("%s=%s\n",vpnname,vpn_value);
     if(vpn_value!=NULL){
-    //printf("%s:%d %s=\n%s\n\n",__func__,__LINE__,vpnname,vpn_value);
         parse_vpn_name(vpn_value,ret_user);
         parse_vpn_pwd(vpn_value,ret_pass);
         ret = 0;
@@ -241,7 +247,7 @@ char* select_vpn_inner_ip()
     ret = get_iface_ip(LAN_PORT,&addr);
 	if(ret != 0)
 	{
-	    __log("get lan ip failed,vpn set default ip.\n");
+	    __log("get lan ip failed,vpn set default ip.");
 	    //return -1;
 	}
 	else
@@ -306,17 +312,10 @@ int handle_getVPN_retsult(char* str)
     
     vpnList_value = find_value_from_sjon_by_key(json_obj,"vpnList");
     if(!vpnList_value){
-        __log("getVPN : sjon not find vpnList");
+        __log("getVPN : sjon not find 'vpnList', return -1;");
         return -1;
     }
-   // printf("%s:%d  vpnList_value = %s\n",__func__,__LINE__,vpnList_value);
 
- #if 0   
-          json_object_object_foreach(json_obj, key, val) {           
-            printf("\t%s: %s\n", key, json_object_to_json_string(val));
-  }
-
-#endif
         
 /*
 
@@ -344,30 +343,30 @@ cat pptpd
     remote_ip_end = htonl(remote_ip_end);
     
     addr.s_addr = remote_ip_end;
-    system("/etc/init.d/pptpd stop");
-    system("rm /etc/config/pptpd");
+    __system("/etc/init.d/pptpd stop");
+    __system("rm /etc/config/pptpd");
     //new one
-    system("touch /etc/config/pptpd");
-    system("uci set pptpd.pptpd=service");
+    __system("touch /etc/config/pptpd");
+    __system("uci set pptpd.pptpd=service");
     
-    system("uci set pptpd.pptpd.enabled=1");
+    __system("uci set pptpd.pptpd.enabled=1");
     while(1)
     {
         i++;
         ret = prase_vpn_user_info(vpnList_value,i,ret_user,ret_passwd);
         if(ret == -1)
             break;
-        system("uci add pptpd login");
+        __system("uci add pptpd login");
         sprintf(cmd,"uci set pptpd.@login[%d].username='%s'",i-1,ret_user);
-        system(cmd);
+        __system(cmd);
         sprintf(cmd,"uci set pptpd.@login[%d].password='%s'",i-1,ret_passwd);
-        system(cmd);
+        __system(cmd);
         sprintf(cmd,"uci set pptpd.@login[%d].remoteip='%s-%s'",i-1,remote_ip_str,inet_ntoa(addr));
-        system(cmd);
-        system("uci commit");
+        __system(cmd);
+        __system("uci commit");
     
     }
-    system("/etc/init.d/pptpd restart");
+    __system("/etc/init.d/pptpd restart");
     free_json(json_obj);
     return 0;
     
@@ -404,41 +403,42 @@ int _check_version(void)
 	ret = get_wan_port(wan_port);
 	if(ret != 0)
 	{
-	    __log("get wan port  failed!\n");
+	    __log("get wan port  failed!");
 	    return -1;
 	}
 	else
 	{
-	    __log(" wan port ::%s>\n",wan_port);
+	    __log(" wan port is %s>",wan_port);
 	}
 	ret = get_iface_ip(wan_port,&addr);
 	if(ret != 0)
 	{
-	    __log("get %s ip failed!\n",wan_port);
+	    __log("get %s ip failed!",wan_port);
 	    return -1;
 	}
 	
 	ret = get_iface_mac(wan_port,mac);
 	if(ret != 0)
 	{
-	    __log("get %s mac failed!\n",wan_port);
+	    __log("get %s mac failed!",wan_port);
 	    return -1;
 	}
 	else
 	{
 	    sprintf(mac_str,"%02X:%02X:%02X:%02X:%02X:%02X",
 	        mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
-	       // printf("mac_str %s\n",mac_str);
 	}
-		__log("_get_vpnlist :%d\n",__LINE__);
+	
 	sprintf(send_m,"{\"ip\":\"%s\",\"netType\":\"%d\" ,\"mac\":\"%s\",\"ver\":\"%s\",\"board\":\"%s\"}",
 	    inet_ntoa(addr),check_private_ip(addr),mac_str,VERSION_WTP,"WE826");
 	
+    __log("send message <%s>\n",send_m);
 	ret = send_msg(MSG_TYPE_GETVER,send_m,strlen(send_m)+1,recv_m,&recv_len);
 	/* handler recv msg */
 	if ((ret >= 0)&&(recv_len >0))
 	{
-	    __log("%s:%d <%s>\n",__func__,__LINE__,recv_m);
+	    recv_m[recv_len] = 0;
+	    __log("recv message len %d <%s>  \n",recv_len,recv_m);
 	    handler_getVer_retsult(recv_m);
 	}
 	return 0;
@@ -447,10 +447,12 @@ int check_version(struct thread* th)
 {
 	int ret;
 	struct thread_master* m = th->arg;
+	
+    __log(" enter check_version:");
 	ret = _check_version();
 	if(ret != 0)
 	{
-		__log("%s failed and errorcode %d, and enter init state\n",__func__,ret);
+		__log(" failed and errorcode %d, and enter init state\n",ret);
 		route_wtp_init(m);//to init state
 	}
 	else
@@ -471,14 +473,14 @@ int __reset_dail_up()
 {
 
     __log("dail up again !\n");
-	system("/etc/init.d/network restart");
+	__system("/etc/init.d/network restart");
 	return 0;
 }
 int __reboot()
 {
     __log("will reboot!\n");
     sleep(3);
-	system("reboot");
+	__system("reboot");
 	return 0;
 }
 int handler_getTask_retsult(char* str)
@@ -507,10 +509,10 @@ int handler_getTask_retsult(char* str)
     {
         sprintf(cmd,"wget \"%s\" -O work.tar",taskurl_v);
         __log("do cmd <%s>",cmd);
-        system(cmd);
+        __system(cmd);
 
-        system("tar xf /tmp/work.tar -C /tmp/work");
-        system("/tmp/work/main.sh &");
+        __system("tar xf /tmp/work.tar -C /tmp/work");
+        __system("/tmp/work/main.sh &");
     }
 
     
@@ -532,45 +534,46 @@ int get_new_task(struct thread* th)//get vpnlist when setup.
 	unsigned char mac[6];
 	char mac_str[32];
 
+
+    __log("  enter task get_new_work");
 	ret = get_wan_port(wan_port);
 	if(ret != 0)
 	{
-	    __log("get wan port  failed!\n");
+	    __log("get wan port  failed!");
 	    return -1;
 	}
 	else
 	{
-           // printf("ret_port_name %p %s\n",wan_port,wan_port);
-	    __log(" wan port ::%s>\n",wan_port);
+	    __log(" wan port is %s",wan_port);
 	}
 	ret = get_iface_ip(wan_port,&addr);
 	if(ret != 0)
 	{
-	    __log("get %s ip failed!\n",wan_port);
+	    __log("get %s ip failed!",wan_port);
 	    return -1;
 	}
 	
 	ret = get_iface_mac(wan_port,mac);
 	if(ret != 0)
 	{
-	    __log("get %s mac failed!\n",wan_port);
+	    __log("get %s mac failed!",wan_port);
 	    return -1;
 	}
 	else
 	{
 	    sprintf(mac_str,"%02X:%02X:%02X:%02X:%02X:%02X",
 	        mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
-	       // printf("mac_str %s\n",mac_str);
 	}
-		__log("_get_vpnlist :%d\n",__LINE__);
 	sprintf(send_m,"{\"ip\":\"%s\",\"mac\":\"%s\"}",
 	    inet_ntoa(addr),mac_str);
 	
+    __log("send  message<%s>\n",send_m);
 	ret = send_msg(MSG_TYPE_GETTASK,send_m,strlen(send_m)+1,recv_m,&recv_len);
 	/* handler recv msg */
 	if ((ret >= 0)&&(recv_len >0))
 	{
-	    __log("%s:%d <%s>\n",__func__,__LINE__,recv_m);
+	    recv_m[recv_len] = 0;
+	    __log("recv message len %d <%s>  \n",recv_len,recv_m);
 	    handler_getTask_retsult(recv_m);
 	}
 	return 0;
@@ -586,15 +589,20 @@ int _report_route_stat_operation(int optcode)
 	switch(optcode)
 	{
 		case 1:
+		
+            __log(" I will reboot!");
 			__reboot();
 		break;
 		case 2:
+            __log(" I will dail up again!");
 			__reset_dail_up();
 		break;
 		case 3:
+            __log(" I will get new vpn list!");
 			__vpn_renew();
 		break;
 		case 4:
+            __log(" I will request new little work!");
 		    __opration_res_new_task();
 		break;
 		default:
@@ -683,8 +691,7 @@ int task_get_wan_rx(struct thread* th)
     }
     else
     {
-            g_wtp_ctx.wan_usage = (ret*8)/base;
-     
+        g_wtp_ctx.wan_usage = (ret*8)/base;
     }
     
 	thread_add_timer(m,task_get_wan_rx,m, 1*60);
@@ -745,18 +752,17 @@ int _report_route_stat(void)
 	ret = get_wan_port(wan_port);
 	if(ret != 0)
 	{
-	    __log("get wan port  failed!\n");
+	    __log("get wan port  failed!");
 	    return -1;
 	}
 	else
 	{
-           // printf("ret_port_name %p %s\n",wan_port,wan_port);
-	    __log(" wan port ::%s>\n",wan_port);
+	    __log(" wan port is %s ",wan_port);
 	}
 	ret = get_iface_ip(wan_port,&addr);
 	if(ret != 0)
 	{
-	    __log("get %s ip failed!\n",wan_port);
+	    __log("get %s ip failed!",wan_port);
 	    return -1;
 	}
 
@@ -771,23 +777,24 @@ int _report_route_stat(void)
 	ret = get_iface_mac(wan_port,mac);
 	if(ret != 0)
 	{
-	    __log("get %s mac failed!\n",wan_port);
+	    __log("get %s mac failed!",wan_port);
 	    return -1;
 	}
 	else
 	{
 	    sprintf(mac_str,"%02X:%02X:%02X:%02X:%02X:%02X",
 	        mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
-	       // printf("mac_str %s\n",mac_str);
 	}
-		sprintf(send_m,"{\"ip\":\"%s\",\"mac\":\"%s\", \"cpuInfo\":\"%d\" ,\"memInfo\":\"%d\",\"WanInfo\":\"%d\"}",
-	    inet_ntoa(addr),mac_str,get_cpu_usage(),get_memory_usage(),g_wtp_ctx.wan_usage);
-	
+	sprintf(send_m,"{\"ip\":\"%s\",\"mac\":\"%s\", \"cpuInfo\":\"%d\" ,\"memInfo\":\"%d\",\"WanInfo\":\"%d\"}",
+        inet_ntoa(addr),mac_str,get_cpu_usage(),get_memory_usage(),g_wtp_ctx.wan_usage);
+        
+    __log("send  message<%s>\n",send_m);
 	ret = send_msg(MSG_TYPE_PUTROUTESTATE,send_m,strlen(send_m)+1,recv_m,&recv_len);
 	/* handler recv msg */
 	if ((ret >= 0)&&(recv_len >0))
 	{
-	    __log("%s:%d <%s>\n",__func__,__LINE__,recv_m);
+	    recv_m[recv_len] = 0;
+	    __log("recv message len %d <%s>  \n",recv_len,recv_m);
 	    _report_route_stat_restult(recv_m);
 	}
 	return 0;
@@ -798,14 +805,16 @@ int report_route_stat(struct thread *th)
 	int ret;
 	
 	struct thread_master* m = th->arg;
+	__log("enter report_route_stat:");
 	ret = _report_route_stat();
 	if(ret != 0)
 	{
-		__log("%s failed and errorcode %d, and enter init state\n",__func__,ret);
+		__log("failed and errorcode %d, and enter init state",ret);
 		route_wtp_init(m);//to init state
 	}
 	else
 	{
+	    __log("report_route_stat success");
 		thread_add_timer(m,report_route_stat,m,5*60);// 5 minutes
 	}
 	return 0;
@@ -829,41 +838,40 @@ int _get_vpnlist(void)
 	ret = get_wan_port(wan_port);
 	if(ret != 0)
 	{
-	    __log("get wan port  failed!\n");
+	    __log("get wan port  failed, return -1");
 	    return -1;
 	}
 	else
 	{
-	    __log(" wan port ::%s>\n",wan_port);
+	    __log(" wan port is %s",wan_port);
 	}
 	ret = get_iface_ip(wan_port,&addr);
 	if(ret != 0)
 	{
-	    __log("get_ %s ip failed!\n",wan_port);
+	    __log("get %s ip failed, return -1",wan_port);
 	    return -1;
 	}
 	
 	ret = get_iface_mac("eth0",mac);
 	if(ret != 0)
 	{
-	    __log("get_ %s mac failed!\n","eth1");
+	    __log("get_ %s mac failed!","eth0");
 	    return -1;
 	}
 	else
 	{
 	    sprintf(mac_str,"%02X:%02X:%02X:%02X:%02X:%02X",
 	        mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
-	       // printf("mac_str %s\n",mac_str);
 	}
 
-	
-		__log("_get_vpnlist :%d\n",__LINE__);
 	sprintf(send_m,"{\"ip\":\"%s\",\"mac\":\"%s\"}",inet_ntoa(addr),mac_str);
 	
+    __log(" send  message<%s>\n",send_m);
 	ret = send_msg(MSG_TYPE_GETVPN,send_m,strlen(send_m)+1,recv_m,&recv_len);
 	if ((ret >= 0)&&(recv_len >0))
 	{
-	    __log("%s:%d <%s>\n",__func__,__LINE__,recv_m);
+	    recv_m[recv_len] = 0;
+	    __log("recv message len %d <%s>  \n",recv_len,recv_m);
 	    handle_getVPN_retsult(recv_m);
 	}
 	return ret;
@@ -874,17 +882,19 @@ int get_vpnlist(struct thread* th)//get vpnlist when setup.
 	// call http_post();
 	struct thread_master* m = th->arg;
 	int ret=0;
+	
+    	__log("  enter task get_vpnlist:");
 	ret = _get_vpnlist();
 	if(ret!=0)
 	{
 		//error
-		__log("get_vpnlist failed and errorcode %d\n",ret);
+		__log("get_vpnlist failed and errorcode %d",ret);
 		
 		thread_add_timer(m,get_vpnlist,m,3*60);// 3 minutes
 	}
 	else
 	{
-		__log("get vpn list  is success!\n");
+		__log("get vpn list  is success and next report_route_stat and check_version\n");
 		thread_add_timer(m,report_route_stat,m,1*5);// 5 minutes
 		thread_add_timer(m,check_version,m,2*5);// 10 minutes
 	}
@@ -904,19 +914,19 @@ int _get_base_info(struct wtp_base_info* binfo)
 	ret = get_wan_port(wan_port);
 	if(ret != 0)
 	{
-	    __log("get wan port  failed!\n");
+	    __log("get wan port  failed!");
 	    return -1;
 	}
 	else
 	{
-	    __log(" wan port ::%s>\n",wan_port);
+	    __log(" wan port is %s ",wan_port);
     	strncpy(binfo->wanport,wan_port,strlen(wan_port));
 	}
 	
 	ret = get_iface_ip(wan_port,&addr);
 	if(ret != 0)
 	{
-	    __log("get_ %s ip failed!\n",wan_port);
+	    __log("get %s ip failed!",wan_port);
 	    return -1;
 	}
     binfo->wanip.s_addr = addr.s_addr;
@@ -924,7 +934,7 @@ int _get_base_info(struct wtp_base_info* binfo)
 	ret = get_iface_mac("eth0",mac);
 	if(ret != 0)
 	{
-	    __log("get_ %s mac failed!\n","eth1");
+	    __log("get %s mac failed!","eth0");
 	    return -1;
 	}
 	else
@@ -934,7 +944,6 @@ int _get_base_info(struct wtp_base_info* binfo)
     	
 	    sprintf(mac_str,"%02X:%02X:%02X:%02X:%02X:%02X",
 	        mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
-	       // printf("mac_str %s\n",mac_str);
 	}
 	return 0;
 }
@@ -943,13 +952,17 @@ int task_get_baseinfo(struct thread* th)
 {
     
 	struct thread_master* m = th->arg;
+	__log("  enter task get_baseinfo:");
 	if(0 !=_get_base_info(&g_wtp_ctx.binfo))
 	{
 	    
+    	__log("  task get_baseinfo failed");
     	thread_add_timer(m,task_get_baseinfo,m,60);// 60 sec
 	}
 	else
 	{
+	
+    	__log("  task get_baseinfo success; and next get_vpnlist,task_get_lan_rx,task_get_wan_tx");
 	    thread_add_timer(m,get_vpnlist,m,3);// 3 sec
         thread_add_timer(m,task_get_lan_rx,m,1);        
 	    thread_add_timer(m,task_get_wan_rx,m, 1*60);  
@@ -959,8 +972,9 @@ int route_wtp_init(struct thread_master* m)
 {
 	g_wtp_ctx.m = m;
 	
-	    
-	thread_add_timer(m,get_vpnlist,m,3);// 3 sec
+	
+	thread_add_timer(m,task_get_baseinfo,m,3);// 3 sec
+	//thread_add_timer(m,get_vpnlist,m,3);// 3 sec
     //test_json_vpnlists(NULL);
 	return 0;
 		
