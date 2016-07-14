@@ -56,7 +56,7 @@ int _p_log(const char* func,int line,const char* fmt,...)
 	    fprintf(log_fp,"%s",buf);
 	    fflush(log_fp);
 	}
-	if(log_line >=2048);
+	if(log_line >=2048)
 	{
 	    fd = fileno(log_fp);
 	    ftruncate(fd, 0);
