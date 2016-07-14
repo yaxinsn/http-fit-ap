@@ -34,27 +34,44 @@ int _p_log(const char* func,int line,const char* fmt,...)
 {
 	va_list args;
 	int l;
+	static FILE* log_fp = 0;
+	static int log_line = 0;
+	int fd;
 	char buf[1024]={0};
+
+	if(log_fp == NULL)
+	{
+	    log_fp = fopen("/tmp/cli.log","w");
+	}
 	va_start(args,fmt);
 	l = sprintf(buf,"%s:%d ",func,line);
 	vsprintf(buf+l,fmt,args);
-	fprintf(stdout,"%s",buf);
 	va_end(args);
+	
+	if(log_fp == NULL)
+	    fprintf(stderr,"%s",buf);
+	else 
+	{
+	    log_line++;
+	    fprintf(log_fp,"%s",buf);
+	    fflush(log_fp);
+	}
+	if(log_line >=2048);
+	{
+	    fd = fileno(log_fp);
+	    ftruncate(fd, 0);
+	    lseek(fd, 0, SEEK_SET);
+	    log_line = 0;
+	}
+	
 }
 #define __log(fmt,...) \
 	_p_log(__func__,__LINE__,fmt"\n", ##__VA_ARGS__)
 
 #if 0
-int _p_log_system(const char* func,int line,char* xxx)
-{
-	int l;
-	char buf[1024]={0};
-	l = sprintf(buf,"%s:%d",func,line);
-	sprintf(buf+l, "<%s>\n",xxx);
-	printf("%s",buf);
-}
-#define __system(xxx) \
-	_p_log_system(__func__,__LINE__,xxx)
+#define __system(cmd)   do{ \
+    __log("do system cmd: %s",cmd); \
+    }while(0);
 #endif
 
 #if 0
@@ -222,7 +239,7 @@ int prase_vpn_user_info(char* str,int id,char* ret_user,char* ret_pass)
         free_json(json_obj);
         return -1;
     }
-    printf("%s=%s\n",vpnname,vpn_value);
+    __log("%s=%s\n",vpnname,vpn_value);
     if(vpn_value!=NULL){
         parse_vpn_name(vpn_value,ret_user);
         parse_vpn_pwd(vpn_value,ret_pass);
@@ -769,7 +786,7 @@ int _report_route_stat(void)
 	
 	if(g_wtp_ctx.binfo.wanip.s_addr != addr.s_addr)
 	{
-	    
+	    __log("wan ip is change, and renew vpnlist after 5 sec!");
 	    thread_add_timer(g_wtp_ctx.m,get_vpnlist,g_wtp_ctx.m,5);// 5 sec
 	    g_wtp_ctx.binfo.wanip.s_addr = addr.s_addr;
 	}

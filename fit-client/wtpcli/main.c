@@ -42,7 +42,7 @@ static void __destroy__(void)
 	char   cmd[256];
 	char   dir[128];
 	struct stat st; 
-
+    int i;
 	snprintf(dir, sizeof(dir), "%s/%u", WORKDIR, getpid());
 
 	if( *dir && 0 == strncmp(dir, workdir, sizeof(dir)) && 0 == stat(dir, &st) ) {
@@ -54,6 +54,11 @@ static void __destroy__(void)
 			system(cmd) ;
 		}
 	}
+	/* socket file decribtion */	
+	for(i= sysconf(_SC_OPEN_MAX); i>=3; i--)
+	{
+	    close(i);
+    }
 }
 int  show_time(struct thread *th)
 {	
