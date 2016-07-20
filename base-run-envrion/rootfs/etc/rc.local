@@ -1,0 +1,7 @@
+# Put your custom commands here that should be executed once
+# the system init finished. By default this file does nothing.
+#/sbin/usbserial.sh &
+/bin/fix_mac.sh &
+
+/usr/sbin/start_cli.sh &
+exit 0
