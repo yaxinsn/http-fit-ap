@@ -1,5 +1,5 @@
-#debug
-#logfile /tmp/pptp-server.log
+debug
+logfile /tmp/pptp-server.log
 auth
 name "pptp-server"
 lcp-echo-failure 3
@@ -17,6 +17,6 @@ refuse-chap
 refuse-mschap
 refuse-eap
 refuse-pap
-#ms-dns 172.16.1.1
+ms-dns 202.106.0.20 114.114.114.114
 #plugin radius.so
 #radius-config-file /etc/radius.conf

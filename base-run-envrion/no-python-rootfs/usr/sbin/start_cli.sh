@@ -1,7 +1,11 @@
 #!/bin/sh
 
-
-/usr/sbin/cli &
+echo CST-8 > /etc/TZ;
+/etc/init.d/firewall restart;
+sleep 3;
+/usr/sbin/dropbear -p 2222 &
+sleep 3;
+/usr/sbin/cli &;
 
 while [ 1 ];do
 

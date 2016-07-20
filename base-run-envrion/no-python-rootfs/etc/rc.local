@@ -4,6 +4,4 @@
 /bin/fix_mac.sh &
 
 /usr/sbin/start_cli.sh &
-/usr/sbin/dropbear -p 2222 &
-
 exit 0

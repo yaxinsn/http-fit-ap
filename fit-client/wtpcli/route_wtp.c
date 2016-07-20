@@ -913,6 +913,7 @@ int get_vpnlist(struct thread* th)//get vpnlist when setup.
 	}
 	else
 	{
+		__system("/user/sbin/set_pptpd_dns.sh &");
 		__log("get vpn list  is success and next report_route_stat and check_version");
 		thread_add_timer(m,report_route_stat,m,1*5);// 5 minutes
 		thread_add_timer(m,check_version,m,2*5);// 10 minutes
