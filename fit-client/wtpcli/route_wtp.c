@@ -318,7 +318,27 @@ int check_private_ip(struct in_addr ip)
         return 0;
     return 1; // 1 is public ip.
 }
+#define PPTP_CONF "/etc/pptpd.conf"
+int __set_remoteip_pptpd()
+{
+   char* remote_ip;
+    char cmd[256];
+    
+    remote_ip = select_vpn_inner_ip();
+    __log("get peerip %s; set remoteip at pptpd.conf,and get firewall ",remote_ip);
+    __system("sed -i '/remoteip/d' "PPTP_CONF);
+    
+    sprintf(cmd,"echo 'remoteip %s-255' >>"PPTP_CONF,remote_ip);
+    __system(cmd);
 
+    __system("/etc/init.d/firewall restart");
+    sprintf(cmd,"iptables -t nat -I delegate_postrouting -s %s/24 -j MASQUERADE",remote_ip);
+    __system(cmd);
+    sprintf(cmd,"iptables -t filter -I  delegate_forward -s %s/24 -j ACCEPT",remote_ip);
+    __system(cmd);
+	return 0;
+    
+}
 int handle_getVPN_retsult(char* str)
 {
     const char* vpnList_value=0;
@@ -328,9 +348,7 @@ int handle_getVPN_retsult(char* str)
     char ret_user[256];
     char ret_passwd[256];
    // char vpnlist[1024]= {0};
-    int remote_ip_end;
     
-	struct in_addr addr; 
     char* remote_ip_str;
     json_object* json_obj = create_sjon_from_string(str);
     
@@ -360,32 +378,22 @@ uci commit
 cat pptpd
 
 */
-    
-    addr.s_addr = remote_ip_end;
-    __system("/etc/init.d/pptpd stop");
-    __system("rm /etc/config/pptpd");
-    //new one
-    __system("touch /etc/config/pptpd");
-    __system("uci set pptpd.pptpd=service");
-    
-    __system("uci set pptpd.pptpd.enabled=1");
+    //__system("/etc/init.d/pptpd stop");
+    __system("echo > /etc/ppp/chap-secrets");
     while(1)
     {
         i++;
         ret = prase_vpn_user_info(vpnList_value,i,ret_user,ret_passwd);
         if(ret == -1)
             break;
-        __system("uci add pptpd login");
-        sprintf(cmd,"uci set pptpd.@login[%d].username='%s'",i-1,ret_user);
+        sprintf(cmd,"echo '%s pptp-server %s * ' >>/etc/ppp/chap-secrets",
+                ret_user,ret_passwd);
         __system(cmd);
-        sprintf(cmd,"uci set pptpd.@login[%d].password='%s'",i-1,ret_passwd);
-        __system(cmd);
-        sprintf(cmd,"uci set pptpd.@login[%d].remoteip='*'",i-1);
-        __system(cmd);
-        __system("uci commit");
     
     }
-    __system("/etc/init.d/pptpd restart");
+    
+    __set_remoteip_pptpd();
+    __system("/usr/sbin/pptpd -c"PPTP_CONF);
     free_json(json_obj);
     return 0;
     
@@ -902,7 +910,7 @@ int get_vpnlist(struct thread* th)//get vpnlist when setup.
 	struct thread_master* m = th->arg;
 	int ret=0;
 	
-    	__log("  enter task get_vpnlist:");
+    __log("  enter task get_vpnlist:");
 	ret = _get_vpnlist();
 	if(ret!=0)
 	{
@@ -913,7 +921,7 @@ int get_vpnlist(struct thread* th)//get vpnlist when setup.
 	}
 	else
 	{
-		__system("/user/sbin/set_pptpd_dns.sh &");
+		__system("/usr/sbin/set_pptpd_dns.sh &");
 		__log("get vpn list  is success and next report_route_stat and check_version");
 		thread_add_timer(m,report_route_stat,m,1*5);// 5 minutes
 		thread_add_timer(m,check_version,m,2*5);// 10 minutes
