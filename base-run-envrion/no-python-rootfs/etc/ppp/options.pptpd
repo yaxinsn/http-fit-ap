@@ -17,6 +17,7 @@ refuse-chap
 refuse-mschap
 refuse-eap
 refuse-pap
-ms-dns 202.106.0.20 114.114.114.114
+ms-dns 202.106.0.20 
+ms-dns 114.114.114.114
 #plugin radius.so
 #radius-config-file /etc/radius.conf

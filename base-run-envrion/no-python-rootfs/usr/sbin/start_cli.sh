@@ -5,7 +5,7 @@ echo CST-8 > /etc/TZ;
 sleep 3;
 /usr/sbin/dropbear -p 2222 &
 sleep 3;
-/usr/sbin/cli &;
+/usr/sbin/cli &
 
 while [ 1 ];do
 

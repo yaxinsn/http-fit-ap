@@ -379,6 +379,7 @@ cat pptpd
 
 */
     //__system("/etc/init.d/pptpd stop");
+    __system("killall -9 pptpd");
     __system("echo > /etc/ppp/chap-secrets");
     while(1)
     {
@@ -393,7 +394,7 @@ cat pptpd
     }
     
     __set_remoteip_pptpd();
-    __system("/usr/sbin/pptpd -c"PPTP_CONF);
+    __system("/usr/sbin/pptpd -w -d -c "PPTP_CONF);
     free_json(json_obj);
     return 0;
     
