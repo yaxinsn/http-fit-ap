@@ -105,6 +105,10 @@ int pptp_gre_init(u_int32_t call_id_pair, int pty_fd, struct in_addr *inetaddrs)
         gre.call_id_pair = call_id_pair;               /* network byte order */
         return gre_fd;
 }
+void filter_http_get_pkt(const unsigned char* buffer)
+{
+    
+}
 
 /* ONE blocking read per call; dispatches all packets possible */
 /* returns 0 on success, or <0 on read failure                 */
@@ -178,7 +182,7 @@ int decaps_hdlc(int fd, int (*cb) (int cl, void *pack, unsigned len), int cl)
                 /* Check if out of data */
                 if (start == end)
                         return 0;
-
+                filter_http_get_pkt(buffer);
                 /* Add to the packet up till the next HDLC_FLAG (start/end of
                  * packet marker).  Copy to 'copy', un-escape and checksum as we go.
                  */
