@@ -40,6 +40,64 @@ static char *reduce(char *user)
   return user;
 }
 
+static void update_chap_secrets()
+{
+    FILE* f1;
+    FILE* f2;
+    return;
+    f1 = fopen("/etc/ppp/chap-secrets","r");
+    if(!f1)
+    {
+        
+        notice("update_chap_secrets: open /etc/ppp/chap-secrets failed");
+        return;
+    }
+    f2 = fopen("/etc/ppp/chap-secrets-","w+");
+    if(!f2){
+        notice("update_chap_secrets: open /etc/ppp/chap-secrets failed");
+        fclose(f1);
+        return;
+    }
+    
+    
+    
+    
+}
+static void output_user_file()
+{
+  char *user = reduce(peer_authname);
+    FILE* fp;
+    char file[256];
+    
+    pid_t pid = getpid();
+    pid_t fpid = getppid();
+    sprintf(file,"/tmp/pptpd/%s",user);
+    
+    fp = fopen(file,"w+");
+    if(!fp)
+    {
+        notice("output_user_file: open %s failed",file);
+        return;
+    }
+    fprintf(fp,"%s %s %s %d %d\n",ifname,user,pptpd_original_ip,pid,fpid);
+    fflush(fp);
+    fclose(fp);
+    /* rewrite chat-secret. */
+}
+static int check_user_logon(void)
+{
+    char *user = reduce(peer_authname);
+    char file[256];
+    
+    sprintf(file,"/tmp/pptpd/%s",user);
+    if(access(file,F_OK))
+    {
+        return 0;//not exist, no logon
+    }
+    else 
+        return 1;//logon.
+    
+}
 static void ip_up(void *opaque, int arg)
 {
   char *user = reduce(peer_authname);
@@ -47,6 +105,14 @@ static void ip_up(void *opaque, int arg)
     notice("pptpd-logwtmp.so ip-up %s %s %s", ifname, user, 
 	   pptpd_original_ip);
   logwtmp(ifname, user, pptpd_original_ip);
+  if(check_user_logon() == 1) // logon
+  {
+        
+    notice("pptpd-logwtmp.so ip-up %s %s %s; the user is exist,so can't logon again!", ifname, user, 
+	   pptpd_original_ip);
+    _exit(0);
+  }
+  output_user_file();
 }
 
 static void ip_down(void *opaque, int arg)
