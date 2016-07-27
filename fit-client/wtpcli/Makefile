@@ -16,7 +16,8 @@ OBJ:=$(patsubst %.c,%.o,$(SRC))
 CFLAGS+=-I. -I./utils -include os.h -include utils/utils.h \
 		-include types_pub.h -include debug_pub.h $(TARGET_CPPFLAGS)   -g  -std=c99
 EXTLIB+=-lcrypt -lutil -lrt
-LDFLAGS+= $(TARGET_LDFLAGS)  -lc -lm -ldl -lmbedtls -lcurl  -L/mnt/Chaos-Calmer-15.05/openwrt/build_dir/target-mipsel_24kec+dsp_uClibc-0.9.33.2/json-c-0.12/ipkg-install/usr/lib -ljson-c 
+#LDFLAGS+= $(TARGET_LDFLAGS)  -lc -lm -ldl -lmbedtls -lcurl  -L/mnt/Chaos-Calmer-15.05/openwrt/build_dir/target-mipsel_24kec+dsp_uClibc-0.9.33.2/json-c-0.12/ipkg-install/usr/lib -ljson-c 
+LDFLAGS+= $(TARGET_LDFLAGS)  -lc -lm -ldl -lmbedtls -lcurl  -L$(BUILD_DIR)/json-c-0.12/ipkg-install/usr/lib -ljson-c 
 
 all default : $(EXE)
 install: $(DIR_INS)/$(EXE)
