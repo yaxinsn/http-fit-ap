@@ -12,6 +12,8 @@
 #include <unistd.h>
 #include <utmp.h>
 #include <string.h>
+#include <stdio.h>
+#include <errno.h>
 #include <pppd/pppd.h>
 
 char pppd_version[] = VERSION;
@@ -98,6 +100,7 @@ static int check_user_logon(void)
         return 1;//logon.
     
 }
+
 static void ip_up(void *opaque, int arg)
 {
   char *user = reduce(peer_authname);
@@ -114,12 +117,25 @@ static void ip_up(void *opaque, int arg)
   }
   output_user_file();
 }
-
+void delete_user_file()
+{
+	char path[128];
+	int ret;
+  	char *user = reduce(peer_authname);
+	sprintf(path,"/tmp/pptpd/%s",user);    
+    notice("pptpd-logwtmp.so ip-down; remove <%s>",path);
+    ret = remove(path);
+    if(ret != 0)
+	    notice("pptpd-logwtmp.so ip-down; remove <%s> failed; and errno %s",path,strerrer(errno));
+    
+}
 static void ip_down(void *opaque, int arg)
 {
   if (debug) 
     notice("pptpd-logwtmp.so ip-down %s", ifname);
   logwtmp(ifname, "", "");
+  delete_user_file();
+  
 }
 
 void plugin_init(void)

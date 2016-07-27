@@ -1,12 +1,13 @@
 
-include openwrt/rules.mk
+include Chaos-Calmer/rules.mk
 
 export TARGET_LDFLAGS
 export TARGET_CPPFLAGS
-
+export TARGET_CC
+export TARGET_LD
+export BUILD_DIR
 
 all: prepare wtp
-
 
 prepare:
 	@echo "--INSTALL_ROOT :$(INSTALL_ROOT)"
