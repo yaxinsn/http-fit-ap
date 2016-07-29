@@ -3,16 +3,21 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
+#include "wake_utils.h"
 
 //"pptpdurllog" : "1" 'pptpdserverip': 'time:username': 'user_logon_ip(pptp_peer_ip)' : 'url'
 //				: 本机IP 。：   本地时间：读取本地数组：
 //"pptpdurllog" : "2" 'pptpdserverip': 'time:username': 'user_logon_ip(pptp_peer_ip)' : 'on '/off
+
+
 struct outlog_ctx_st
 {
 	int msg_num;
-	pthread_mutex_t mutex;
 	msg_list_t	msg_head;
-}outlog_ctx;
+	pthread_mutex_t mutex;  //sync
+	_wake_ wake;
+};
+struct outlog_ctx_st outlog_ctx;
 
 int outlog()
 {
@@ -25,24 +30,6 @@ int outlog()
 	
 	closelog();
 	return 0;
-}
-
-void* log_mgr_pthread(void* arg)
-{
-	
-}
-//
-log_mgr_start()
-{
-	pthread_t tid;
-	openlog("pptpd_urllog",  LOG_CONS | LOG_PID, LOG_USER);
-	TAILQ_INIT(&outlog_ctx.msg_head);
-	
-	if(pthread_create(&tid,NULL,log_mgr_pthread,(void*)fd)){
-		printf("Create pptp_user_mgr fail!\n");
-		return -1;
-	}
-	return tid;
 }
 void __send_logon_msg(char* msg,int len)
 {
@@ -84,14 +71,39 @@ int output_msg(struct outlog_ctx_st* _ctx )
 			default:
 				break;
 		}
+		TAILQ_REMOVE(&_ctx->msg_head,entry,node);
 	}
 	
 	pthead_mutex_unlock(*_ctx->mutex);
 	return 0;
 }
 
-
+void* log_mgr_pthread(void* arg)
+{
+    while(1)
+    {
+        // todo
+        output_msg(&outlog_ctx);
+	    sleep_down(&outlog_ctx.wake);
+	}
+}
 //
+int log_mgr_start(void)
+{
+	pthread_t tid;
+	openlog("pptpd_urllog",  LOG_CONS | LOG_PID, LOG_USER);
+
+    wake_init(&outlog_ctx.wake);
+	
+	TAILQ_INIT(&outlog_ctx.msg_head);
+	
+	if(pthread_create(&tid,NULL,log_mgr_pthread,(void*)fd)){
+		printf("Create pptp_user_mgr fail!\n");
+		return -1;
+	}
+	return tid;
+}
+
 push_msg_to_log_list(enum enum_msg_type type,void* msg,int len)
 {
 	
@@ -105,7 +117,8 @@ push_msg_to_log_list(enum enum_msg_type type,void* msg,int len)
 	entry->len = len;
 	
 	memcpy(entry->msg,msg,len);
-	pthead_mutex_lock(*outlog_ctx->mutex);
-	TAILQ_INSERT_TAIL(&outlog_ctx->msg_head,entry,node);
-	pthead_mutex_unlock(*outlog_ctx->mutex);
+	pthead_mutex_lock(&outlog_ctx.mutex);
+	TAILQ_INSERT_TAIL(&outlog_ctx.msg_head,entry,node);
+	pthead_mutex_unlock(&outlog_ctx.mutex);
+	wake_up(&outlog_ctx.wake);
 }

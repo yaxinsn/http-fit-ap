@@ -38,7 +38,7 @@ typedef struct __msg_entry
 typedef TAILQ_HEAD(__msg_list,__msg_entry) msg_list_t;
 
 
-int outlog();
+int outlog(void);
 pthread_t pptp_user_mgr_start();
 
 

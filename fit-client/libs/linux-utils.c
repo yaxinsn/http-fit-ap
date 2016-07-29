@@ -267,3 +267,22 @@ int get_cpu_usage(void)
 	fclose(fp);
 	return ret;
 }
+
+
+/***************file ***************/
+
+int file_set_block(int fd)
+{
+    char buf[10];
+    int n;
+    int flags;
+    flags = fcntl(fd, F_GETFL);
+    flags |= O_NONBLOCK;
+    if (fcntl(fd, F_SETFL, flags) == -1)
+    {
+        perror("fcntl");
+        return -1;
+    }
+    return 0;
+}
+

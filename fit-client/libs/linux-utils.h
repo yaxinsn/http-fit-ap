@@ -23,3 +23,6 @@ struct ifinfo
 int get_net_dev_stat(char* name,struct ifinfo* ifc);
 uint8_t get_memory_usage(void);
 int get_cpu_usage(void);
+
+int file_set_block(int fd);
+
