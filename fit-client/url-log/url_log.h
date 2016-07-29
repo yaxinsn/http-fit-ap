@@ -1,6 +1,19 @@
 
-#ifndef URL_LOG_H url_log.h
+#ifndef URL_LOG_H 
 #define URL_LOG_H
+
+
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/socket.h>  
+#include <sys/un.h> 
+#include <fcntl.h>
+#include <sys/select.h>
+#include <sys/time.h>
+#include <sys/queue.h>
 
 
 typedef struct url_log_msg_st
@@ -28,12 +41,12 @@ enum enum_msg_type{
 typedef struct __msg_entry
 {
 	TAILQ_ENTRY(__msg_entry) node;
-	long	time_stamp;
+	long	time;
 	int 	len;
-	enum	enum_msg_type;
+	enum	enum_msg_type  msg_type;
 	int 	msg_len; //len is len of data
 	char	msg[0];
-}__msg_entry_t
+}__msg_entry_t;
 
 typedef TAILQ_HEAD(__msg_list,__msg_entry) msg_list_t;
 

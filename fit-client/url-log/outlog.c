@@ -2,14 +2,28 @@
 #include <errno.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <sys/socket.h>  
+#include <sys/un.h> 
+#include <fcntl.h>
+#include <sys/select.h>
+#include <sys/time.h>
 #include <string.h>
+#include <pthread.h>
 #include "wake_utils.h"
+#include "url_log.h"
+#include <sys/queue.h>
+#include <stdlib.h>
 
 //"pptpdurllog" : "1" 'pptpdserverip': 'time:username': 'user_logon_ip(pptp_peer_ip)' : 'url'
 //				: 本机IP 。：   本地时间：读取本地数组：
 //"pptpdurllog" : "2" 'pptpdserverip': 'time:username': 'user_logon_ip(pptp_peer_ip)' : 'on '/off
 
-
+#ifndef TAILQ_FOREACH_SAFE
+#define TAILQ_FOREACH_SAFE(var,head,field,tvar)           \
+    for((var) = TAILQ_FIRST((head));                    \
+        (var) &&((tvar) = TAILQ_NEXT((var),field),1);   \
+        (var) = (tvar))
+#endif
 struct outlog_ctx_st
 {
 	int msg_num;
@@ -44,7 +58,7 @@ void __send_logon_msg(char* msg,int len)
 	ctime_r(&lmsg->time,time_str);
 	time_str[strlen(time_str)-1] = '\0';
 	//to do it;
-	syslog(LOG_INFO,"LOGON_OFF %s %s %s %s %s",
+	syslog(LOG_INFO,"LOGON_OFF %s %s %s %s ",
 		pptpd_server_ip,time_str,peer_ip,logon);
 	return;
 }
@@ -57,10 +71,10 @@ int output_msg(struct outlog_ctx_st* _ctx )
 	
 	__msg_entry_t* entry = NULL;
 	__msg_entry_t* entry_next = NULL;
-	pthead_mutex_lock(*_ctx->mutex);
+	pthread_mutex_lock(&_ctx->mutex);
 	TAILQ_FOREACH_SAFE(entry,&_ctx->msg_head,node,entry_next)
 	{
-		switch(entry->enum_msg_type)
+		switch(entry->msg_type)
 		{
 			case URL_MSG_TYPE:
 				__send_url_msg(entry->msg,entry->len);
@@ -74,7 +88,7 @@ int output_msg(struct outlog_ctx_st* _ctx )
 		TAILQ_REMOVE(&_ctx->msg_head,entry,node);
 	}
 	
-	pthead_mutex_unlock(*_ctx->mutex);
+	pthread_mutex_unlock(&_ctx->mutex);
 	return 0;
 }
 
@@ -97,7 +111,7 @@ int log_mgr_start(void)
 	
 	TAILQ_INIT(&outlog_ctx.msg_head);
 	
-	if(pthread_create(&tid,NULL,log_mgr_pthread,(void*)fd)){
+	if(pthread_create(&tid,NULL,log_mgr_pthread,(void*)0)){
 		printf("Create pptp_user_mgr fail!\n");
 		return -1;
 	}
@@ -113,12 +127,12 @@ push_msg_to_log_list(enum enum_msg_type type,void* msg,int len)
 		return -1;
 	
 	time(&entry->time);
-	entry->enum_msg_type = type;
+	entry->msg_type = type;
 	entry->len = len;
 	
 	memcpy(entry->msg,msg,len);
-	pthead_mutex_lock(&outlog_ctx.mutex);
+	pthread_mutex_lock(&outlog_ctx.mutex);
 	TAILQ_INSERT_TAIL(&outlog_ctx.msg_head,entry,node);
-	pthead_mutex_unlock(&outlog_ctx.mutex);
+	pthread_mutex_unlock(&outlog_ctx.mutex);
 	wake_up(&outlog_ctx.wake);
 }
