@@ -10,6 +10,7 @@
 //#include <sys/quenue.h>
 #include <signal.h>
 #include <pthread.h>
+#include "url_log.h"
 
 #define UNIX_DOMAIN "/tmp/.pptpd_url.log"  
 //return socket fd
@@ -44,6 +45,7 @@ int setup_unix_server()
 int handle_msg(unsigned char* buf)
 {
 	printf("handle_msg: <%s>\n",(char*)buf);
+	push_msg_to_log_list(LOGON_OFF_MSG_TYPE,buf,strlen(buf));
 	return 0;
 }
 

@@ -27,12 +27,12 @@
 int read_route(char* ret_port_name)
 
 {
-	char devname[64], flags[16], *sdest, *sgw;
+//	char devname[64], flags[16];// *sdest, *sgw;
 	unsigned long d, g, m;
 	int flgs, ref, use, metric, mtu, win, ir;
-	struct sockaddr_in s_addr;
-	struct in_addr mask;
-	int ret;
+	//struct sockaddr_in s_addr;
+	//struct in_addr mask;
+	//int ret;
 
 	FILE *fp = fopen("/proc/net/route","r");
 
@@ -118,7 +118,25 @@ int get_iface_ip(char* name,struct in_addr* ip)
 #endif
 }
 
-
+int get_wan_ip(struct in_addr*  addr)
+{
+    char            wan_port[64]={0};
+	int             ret;
+	
+	ret = get_wan_port(wan_port);
+	if(ret != 0)
+	{
+	    return -1;
+	}
+	
+	ret = get_iface_ip(wan_port,addr);
+	if(ret != 0)
+	{
+	 
+	    return -2;
+	}
+	return 0;
+}
 
 int get_iface_mac(char* name,char* macaddr)
 {
@@ -269,8 +287,8 @@ int get_cpu_usage(void)
 
 int file_set_block(int fd)
 {
-    char buf[10];
-    int n;
+  //  char buf[10];
+//    int n;
     int flags;
     flags = fcntl(fd, F_GETFL);
     flags |= O_NONBLOCK;

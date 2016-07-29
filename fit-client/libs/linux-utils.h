@@ -1,4 +1,5 @@
-
+#ifndef  __LINUX_UTILS_H
+#define  __LINUX_UTILS_H
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
@@ -8,11 +9,12 @@ int get_iface_mac(char* name,char* macaddr);
 int send_msg(int type,char* msg,int len,char* recv,int* recvlen);
 
 int get_wan_port(char* ret_port_name);
+int get_wan_ip(struct in_addr*  addr);
 
-
+/* this strings function */
 char* skip_str_prefix(char* src,char c);
 
-
+/**************status info *************************/
 struct ifinfo
 {
     unsigned long r_bytes,r_pkt,r_err,r_drop,r_fifo,r_frame;
@@ -24,5 +26,9 @@ int get_net_dev_stat(char* name,struct ifinfo* ifc);
 uint8_t get_memory_usage(void);
 int get_cpu_usage(void);
 
+
+/* fcntl fuction */
 int file_set_block(int fd);
 
+
+#endif //__LINUX_UTILS_H

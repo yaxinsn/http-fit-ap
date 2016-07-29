@@ -16,8 +16,12 @@ extern pthread_t pptp_user_mgr_start();
 int main(void)
 {
 	pthread_t pptp_pid;
+	pthread_t log_pid;
 	pptp_pid = pptp_user_mgr_start();
+
+	log_pid = log_mgr_start();
 	pthread_join(pptp_pid,NULL);
+	pthread_join(log_pid,NULL);
 	printf("exit!!!\n");
 	return 0;
 }

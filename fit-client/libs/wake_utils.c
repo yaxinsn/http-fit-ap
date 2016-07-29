@@ -46,6 +46,7 @@ void sleep_down(_wake_* w)
 	timerout.tv_usec = 0;
 	FD_ZERO(&fds);
 	FD_SET(fd,&fds);
+	w->waiting = 1;// go to waiting
 	while(1){
     	r = select(fd+1, &fds, NULL,NULL,&timerout);
     	if(r > 0){

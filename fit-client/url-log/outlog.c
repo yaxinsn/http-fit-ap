@@ -57,7 +57,8 @@ void __send_logon_msg(char* msg,int len)
 	 
 	ctime_r(&lmsg->time,time_str);
 	time_str[strlen(time_str)-1] = '\0';
-	//to do it;
+	printf("%s:%d  msg is <%s>\n",__func__,__LINE__,msg);
+	//todo it;
 	syslog(LOG_INFO,"LOGON_OFF %s %s %s %s ",
 		pptpd_server_ip,time_str,peer_ip,logon);
 	return;
@@ -71,6 +72,7 @@ int output_msg(struct outlog_ctx_st* _ctx )
 	
 	__msg_entry_t* entry = NULL;
 	__msg_entry_t* entry_next = NULL;
+	
 	pthread_mutex_lock(&_ctx->mutex);
 	TAILQ_FOREACH_SAFE(entry,&_ctx->msg_head,node,entry_next)
 	{
@@ -86,6 +88,7 @@ int output_msg(struct outlog_ctx_st* _ctx )
 				break;
 		}
 		TAILQ_REMOVE(&_ctx->msg_head,entry,node);
+		free(entry);
 	}
 	
 	pthread_mutex_unlock(&_ctx->mutex);
@@ -118,7 +121,7 @@ int log_mgr_start(void)
 	return tid;
 }
 
-push_msg_to_log_list(enum enum_msg_type type,void* msg,int len)
+int push_msg_to_log_list(enum enum_msg_type type,void* msg,int len)
 {
 	
 	__msg_entry_t* entry = NULL;
@@ -132,7 +135,8 @@ push_msg_to_log_list(enum enum_msg_type type,void* msg,int len)
 	
 	memcpy(entry->msg,msg,len);
 	pthread_mutex_lock(&outlog_ctx.mutex);
-	TAILQ_INSERT_TAIL(&outlog_ctx.msg_head,entry,node);
+	TAILQ_INSERT_TAIL(&outlog_ctx.msg_head, entry, node);
 	pthread_mutex_unlock(&outlog_ctx.mutex);
 	wake_up(&outlog_ctx.wake);
+	return 0;
 }

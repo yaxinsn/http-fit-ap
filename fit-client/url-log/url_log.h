@@ -14,6 +14,7 @@
 #include <sys/select.h>
 #include <sys/time.h>
 #include <sys/queue.h>
+#include <pthread.h>
 
 
 typedef struct url_log_msg_st
