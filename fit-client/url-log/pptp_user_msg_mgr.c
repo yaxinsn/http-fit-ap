@@ -10,7 +10,7 @@
 //#include <sys/quenue.h>
 #include <signal.h>
 #include <pthread.h>
-#include "url_log.h"
+#include "outlog.h"
 
 #define UNIX_DOMAIN "/tmp/.pptpd_url.log"  
 //return socket fd

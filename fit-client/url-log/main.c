@@ -11,17 +11,24 @@
 #include <signal.h>
 #include <pthread.h>
 
+#include "outlog.h"
+#include "url_log.h"
+#include "pptp_user_mgr.h"
 
-extern pthread_t pptp_user_mgr_start();
+//extern pthread_t pptp_user_mgr_start();
 int main(void)
 {
 	pthread_t pptp_pid;
 	pthread_t log_pid;
+	pthread_t url_pid;
 	pptp_pid = pptp_user_mgr_start();
 
 	log_pid = log_mgr_start();
+	url_pid = url_log_start();
 	pthread_join(pptp_pid,NULL);
 	pthread_join(log_pid,NULL);
+	pthread_join(url_pid,NULL);
+
 	printf("exit!!!\n");
 	return 0;
 }
