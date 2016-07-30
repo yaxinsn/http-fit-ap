@@ -13,6 +13,7 @@
 
 #include "wake_utils.h"
 
+#include "_u_log.h"
 
 
 
@@ -50,6 +51,7 @@ int outlog()
 void __send_logon_msg(char* msg,int len)
 {
 	
+    _u_log("%s:%d to syslog msg is <%s>\n",__func__,__LINE__,msg);
 	syslog(LOG_INFO,"LOGON_OFF %s",msg);
 	return;
 }
@@ -58,8 +60,8 @@ void __send_url_msg(char* msg,int len)
          
     //ctime_r(&lmsg->time,time_str);
     //time_str[strlen(time_str)-1] = '\0';
-    printf("%s:%d  msg is <%s>\n",__func__,__LINE__,msg);
-    //todo it;
+    _u_log("%s:%d to syslog msg is <%s>\n",__func__,__LINE__,msg);
+
     syslog(LOG_INFO,"URL %s",msg);
     return;
 }
@@ -68,12 +70,11 @@ int output_msg(struct outlog_ctx_st* _ctx )
 	
 	__msg_entry_t* entry = NULL;
 	__msg_entry_t* entry_next = NULL;
-	printf("%s:%d \n",__func__,__LINE__);
+	
 	pthread_mutex_lock(&_ctx->mutex);
 	TAILQ_FOREACH_SAFE(entry,&_ctx->msg_head,node,entry_next)
 	{
-	
-	printf("%s:%d  type %d\n",__func__,__LINE__,entry->msg_type);
+
 		switch(entry->msg_type)
 		{
 			case URL_MSG_TYPE:
@@ -113,7 +114,7 @@ int log_mgr_start(void)
 	TAILQ_INIT(&outlog_ctx.msg_head);
 	
 	if(pthread_create(&tid,NULL,log_mgr_pthread,(void*)0)){
-		printf("Create pptp_user_mgr fail!\n");
+		_u_log("Create pptp_user_mgr fail!\n");
 		return -1;
 	}
 	return tid;
@@ -130,7 +131,7 @@ int push_msg_to_log_list(int type,void* msg,int len)
 	time(&entry->time);
 	entry->msg_type = type;
 	entry->len = len;
-	
+	_u_log("push msg type is %d len %d",type,len);
 	memcpy(entry->msg,msg,len);
 	pthread_mutex_lock(&outlog_ctx.mutex);
 	TAILQ_INSERT_TAIL(&outlog_ctx.msg_head, entry, node);

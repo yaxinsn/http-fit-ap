@@ -32,7 +32,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include "outlog.h"
-
+#include "_u_log.h"
 #include "url_log.h"
 
 
@@ -150,7 +150,7 @@ void handle_packet2(ulog_packet_msg_t *pkt)
 	{
 	    sprintf(msg,"%s",ret_url);
 	    
-	    printf("%s: %d url is <%s>\n",__func__,__LINE__,ret_url);
+	    _u_log("%s: %d url is <%s>\n",__func__,__LINE__,ret_url);
 	    push_msg_to_log_list(URL_MSG_TYPE,msg,strlen(msg));
 	}
 

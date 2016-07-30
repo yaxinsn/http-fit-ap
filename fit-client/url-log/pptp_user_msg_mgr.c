@@ -9,8 +9,12 @@
 #include <sys/time.h>
 //#include <sys/quenue.h>
 #include <signal.h>
+#include <errno.h>
+
 #include <pthread.h>
 #include "outlog.h"
+#include "_u_log.h"
+
 
 #define UNIX_DOMAIN "/tmp/.pptpd_url.log"  
 //return socket fd
@@ -23,7 +27,7 @@ int setup_unix_server()
 	listen_fd=socket(AF_UNIX,SOCK_DGRAM,0);  
     if(listen_fd<0)  
     {  
-        perror("cannot create communication socket");  
+        _u_log("cannot create communication socket : %s",strerror(errno));  
         return -1;  
     }    
     
@@ -35,7 +39,7 @@ int setup_unix_server()
     ret=bind(listen_fd,(struct sockaddr*)&srv_addr,sizeof(srv_addr));  
     if(ret==-1)  
     {  
-        perror("cannot bind server socket");  
+        _u_log("cannot bind server socket: %s",strerror(errno));  
         close(listen_fd);  
         unlink(UNIX_DOMAIN);  
         return -1;  
@@ -44,7 +48,10 @@ int setup_unix_server()
 }
 int handle_msg(unsigned char* buf)
 {
-	printf("handle_msg: <%s>\n",(char*)buf);
+	_u_log("handle_msg: <%s>",(char*)buf);
+	//doto this msg
+	//global array.
+	_u_log("push msg %s",buf);
 	push_msg_to_log_list(LOGON_OFF_MSG_TYPE,buf,strlen(buf));
 	return 0;
 }
@@ -83,7 +90,7 @@ pthread_t pptp_user_mgr_start()
 		
     fcntl(fd,F_SETFD,FD_CLOEXEC);
 	if(pthread_create(&tid,NULL,pptp_user_mgr,(void*)fd)){
-		printf("Create pptp_user_mgr fail!\n");
+		_u_log("Create pptp_user_mgr fail!");
 		return -1;
 	}
 	return tid;
