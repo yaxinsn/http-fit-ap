@@ -4,7 +4,10 @@ echo CST-8 > /etc/TZ;
 
 uci set wireless.radio0.disabled=0
 uci commit wireless
-wifi up
+uci set network.@switch_vlan[0].ports='0 1 2 3 6t'
+uci set network.@switch_vlan[1].ports='4 6t'
+uci commit network
+/etc/init.d/network restart;
 
 mkdir /tmp/pptpd -p;
 /etc/init.d/firewall restart;
