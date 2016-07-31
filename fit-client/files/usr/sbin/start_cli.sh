@@ -1,6 +1,11 @@
 #!/bin/sh
 
 echo CST-8 > /etc/TZ;
+
+uci set wireless.radio0.disabled=0
+uci commit wireless
+wifi up
+
 mkdir /tmp/pptpd -p;
 /etc/init.d/firewall restart;
 sleep 3;
