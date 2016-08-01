@@ -1,5 +1,5 @@
 
-include Chaos-Calmer/rules.mk
+include $(TOPDIR)/rules.mk
 
 export TARGET_LDFLAGS
 export TARGET_CPPFLAGS
@@ -7,7 +7,7 @@ export TARGET_CC
 export TARGET_LD
 export BUILD_DIR
 
-all: prepare wtp
+all: prepare wtp_install
 
 prepare:
 	@echo "--INSTALL_ROOT :$(INSTALL_ROOT)"
@@ -16,7 +16,11 @@ prepare:
 	@echo "--TARGET_CPPFLAGS :$(TARGET_CPPFLAGS)"
 	@echo "--TARGET_LDFLAGS :$(TARGET_LDFLAGS)"
 
+wtp_install: wtp_compile
+	@/bin/cp wtpcli/cli $(TARGET_DIR)/usr/sbin/
+	@/bin/cp url-log/url_log $(TARGET_DIR)/usr/sbin/
+	@/bin/cp files/*  $(TARGET_DIR)/ -rf
 
-
-wtp:
+wtp_compile:
 	@cd wtpcli && make 
+	@cd url-log && make 
