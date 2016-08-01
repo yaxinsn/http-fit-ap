@@ -16,7 +16,7 @@ src += $(LIBSRC)
 vpath %.c ../libs
 vpath %.h ../libs
 
-progam = program
+progam = url_log
 
 all: t $(progam)
 
