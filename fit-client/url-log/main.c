@@ -27,11 +27,11 @@ int main(void)
 
 
 	_u_log("I am url-log!");
-//	pptp_pid = pptp_user_mgr_start();
+	pptp_pid = pptp_user_mgr_start();
     printf("pptd_pid %d \n",pptp_pid);
-	//log_pid = log_mgr_start();
+	log_pid = log_mgr_start();
 	printf("log_pid %d \n",log_pid);
-	url_pid = url_log_start2();
+	url_pid = url_log_start();
 	printf("url_pid %d \n",url_pid);
 	
 	_u_log("I am url-log!");

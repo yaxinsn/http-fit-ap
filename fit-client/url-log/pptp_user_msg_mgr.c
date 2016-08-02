@@ -73,9 +73,12 @@ int get_pptp_user_info_by_srcip(struct in_addr* ip,struct pptp_msg* pptp_info)
 	struct pptp_ctx_st* _ctx = &pptp_ctx;
 	struct in_addr localip;
 	//find it
+	
+    printf("%s:%d\n",__func__,__LINE__);
 	pthread_mutex_lock(&_ctx->mutex);
     TAILQ_FOREACH_SAFE(entry,&_ctx->_head,node,entry_next)
 	{
+        printf("%s:%d entry %p\n",__func__,__LINE__,entry);
 	    if(!inet_aton(entry->pptp_info.localip,&localip) && localip.s_addr == ip->s_addr)
 	    {
 	        memcpy(pptp_info,&entry->pptp_info,sizeof(struct pptp_msg));//return it;
@@ -83,6 +86,8 @@ int get_pptp_user_info_by_srcip(struct in_addr* ip,struct pptp_msg* pptp_info)
 	    }
 	}
 	
+    printf("%s:%d\n",__func__,__LINE__);
+	pthread_mutex_unlock(&_ctx->mutex);
     return -1;// not find it
 found_it:
 	pthread_mutex_unlock(&_ctx->mutex);

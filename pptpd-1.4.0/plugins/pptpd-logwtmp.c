@@ -30,6 +30,53 @@ static option_t options[] = {
   { NULL }
 };
 
+struct pptp_msg{
+    char username[64];
+    char port[32];
+    char peerip[32];
+    char localip[32];
+    int pptp_pid;
+    int pppd_pid;
+    int action;// 0 logon 1 logoff
+};
+
+#include <sys/socket.h>  
+#include <sys/un.h>  
+#define UNIX_DOMAIN "/tmp/.pptpd_url.log" 
+
+int  send_user_info_to_urllog(struct pptp_msg* msg)  
+{  
+    int ret; 
+    int connect_fd = -1;  
+    char snd_buf[1024];  
+    int i;  
+    static struct sockaddr_un srv_addr;  
+//creat unix socket  
+    
+    connect_fd=socket(PF_UNIX,SOCK_DGRAM,0);  
+    if(connect_fd < 0)  
+    {  
+        perror("cannot create communication socket");  
+        return 1;  
+    }
+
+    srv_addr.sun_family=AF_UNIX;  
+    strcpy(srv_addr.sun_path,UNIX_DOMAIN);  
+//connect server  
+    ret=connect(connect_fd,(struct sockaddr*)&srv_addr,sizeof(srv_addr));  
+    if(ret==-1)  
+    {  
+        perror("cannot connect to the server");  
+        close(connect_fd);  
+        return 1;  
+    }  
+    sprintf(snd_buf,"message from client %d");  
+//send info server  
+    write(connect_fd,msg,sizeof(*msg));  
+    
+    close(connect_fd);  
+    return 0;  
+} 
 static char *reduce(char *user)
 {
   char *sep;
@@ -65,12 +112,15 @@ static void update_chap_secrets()
     
     
 }
+
+
+
 static void output_user_file()
 {
   char *user = reduce(peer_authname);
     FILE* fp;
     char file[256];
-    
+    struct pptp_msg msg;
     pid_t pid = getpid();
     pid_t fpid = getppid();
     sprintf(file,"/tmp/pptpd/%s",user);
@@ -84,7 +134,14 @@ static void output_user_file()
     fprintf(fp,"%s %s %s %d %d\n",ifname,user,pptpd_original_ip,pid,fpid);
     fflush(fp);
     fclose(fp);
-    /* rewrite chat-secret. */
+    strncpy(msg.username,user,sizeof(msg.username));
+    strncpy(msg.port,ifname,sizeof(msg.port));
+    strncpy(msg.peerip,pptpd_original_ip,sizeof(msg.peerip));
+
+    msg.pppd_pid = pid;
+    msg.pptp_pid = fpid;
+    msg.action = 0; //logon;
+    send_user_info_to_urllog(&msg);
 }
 static int check_user_logon(void)
 {
@@ -121,16 +178,30 @@ void delete_user_file()
 {
 	char path[128];
 	int ret;
+    struct pptp_msg msg;
+    pid_t pid = getpid();
+    pid_t fpid = getppid();
   	char *user = reduce(peer_authname);
 	sprintf(path,"/tmp/pptpd/%s",user);    
     notice("pptpd-logwtmp.so ip-down; remove <%s>",path);
     ret = remove(path);
     if(ret != 0)
 	    notice("pptpd-logwtmp.so ip-down; remove <%s> failed; and errno %s",path,strerrer(errno));
+
     
+    strncpy(msg.username,user,sizeof(msg.username));
+    strncpy(msg.port,ifname,sizeof(msg.port));
+    strncpy(msg.peerip,pptpd_original_ip,sizeof(msg.peerip));
+
+    msg.pppd_pid = pid;
+    msg.pptp_pid = fpid;
+    msg.action = 0; //logon;
+    send_user_info_to_urllog(&msg);
 }
 static void ip_down(void *opaque, int arg)
 {
+
+  struct pptp_msg msg;
   if (debug) 
     notice("pptpd-logwtmp.so ip-down %s", ifname);
   logwtmp(ifname, "", "");

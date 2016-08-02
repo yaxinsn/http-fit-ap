@@ -138,7 +138,7 @@ int get_wan_ip(struct in_addr*  addr)
 	return 0;
 }
 
-int get_iface_mac(char* name,char* macaddr)
+int get_iface_mac(char* name,unsigned char* macaddr)
 {
     struct ifreq ifr;
     int sockfd;

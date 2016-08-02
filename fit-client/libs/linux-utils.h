@@ -5,7 +5,7 @@
 #include <stddef.h>
 #include <string.h>
 int get_iface_ip(char* name,struct in_addr* ip);
-int get_iface_mac(char* name,char* macaddr);
+int get_iface_mac(char* name,unsigned char* macaddr);
 int send_msg(int type,char* msg,int len,char* recv,int* recvlen);
 
 int get_wan_port(char* ret_port_name);
