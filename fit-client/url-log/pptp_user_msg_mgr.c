@@ -14,8 +14,27 @@
 #include <pthread.h>
 #include "outlog.h"
 #include "_u_log.h"
+#include "pptp_user_mgr.h"
 
 
+#include "linux-utils.h"
+
+
+
+typedef struct __pptp_entry
+{
+	TAILQ_ENTRY(__pptp_entry) node;
+	struct pptp_msg pptp_info;
+}__pptp_entry;
+
+typedef TAILQ_HEAD(__pptp_list,__pptp_entry) pptp_list_t;
+struct pptp_ctx_st
+{
+	int _num;
+	pptp_list_t	_head;
+	pthread_mutex_t mutex;  //sync
+};
+static struct pptp_ctx_st pptp_ctx;
 #define UNIX_DOMAIN "/tmp/.pptpd_url.log"  
 //return socket fd
 int setup_unix_server()
@@ -46,13 +65,160 @@ int setup_unix_server()
     }
     return listen_fd;
 }
-int handle_msg(unsigned char* buf)
+
+int get_pptp_user_info_by_port(char* ifname,
+	struct pptp_msg* pptp_info)
 {
-	_u_log("handle_msg: <%s>",(char*)buf);
-	//doto this msg
-	//global array.
-	_u_log("push msg %s",buf);
-	push_msg_to_log_list(LOGON_OFF_MSG_TYPE,buf,strlen(buf));
+	
+	__pptp_entry* entry = NULL;
+	__pptp_entry* entry_next = NULL;
+	struct pptp_ctx_st* _ctx = &pptp_ctx;
+	//find it
+	pthread_mutex_lock(&_ctx->mutex);
+    TAILQ_FOREACH_SAFE(entry,&_ctx->_head,node,entry_next)
+	{
+	    if (!strncmp(entry->pptp_info.port,ifname,
+	            sizeof(entry->pptp_info.port)))
+	    {
+	        memcpy(pptp_info,&entry->pptp_info,sizeof(struct pptp_msg));//return it;
+	        goto found_it;
+	    }
+	}
+	
+    return -1;// not find it
+found_it:
+	pthread_mutex_unlock(&_ctx->mutex);
+	return 0;
+}
+int get_pptp_user_info_by_name(char* name,
+	struct pptp_msg* pptp_info)
+{
+	
+	__pptp_entry* entry = NULL;
+	__pptp_entry* entry_next = NULL;
+	struct pptp_ctx_st* _ctx = &pptp_ctx;
+	//find it
+	pthread_mutex_lock(&_ctx->mutex);
+    TAILQ_FOREACH_SAFE(entry,&_ctx->_head,node,entry_next)
+	{
+	    if (!strncmp(entry->pptp_info.username,name,
+	            sizeof(entry->pptp_info.username)))
+	    {
+	        memcpy(pptp_info,&entry->pptp_info,sizeof(struct pptp_msg));//return it;
+	        goto found_it;
+	    }
+	}
+	
+    return -1;// not find it
+found_it:
+	pthread_mutex_unlock(&_ctx->mutex);
+	return 0;
+}
+int __insert_new_pptp_user( struct pptp_msg* p)
+{
+
+	struct pptp_ctx_st* _ctx = &pptp_ctx;
+
+	__pptp_entry* entry = NULL;
+	entry = malloc(sizeof(__pptp_entry));
+	if(entry == NULL){
+	    _u_err_log("malloc __pptp_entry is failed!");
+		return -1;
+    }
+    memcpy(&entry->pptp_info,p,sizeof(struct pptp_msg));
+	pthread_mutex_lock(&_ctx->mutex);
+	
+	TAILQ_INSERT_TAIL(&_ctx->_head, entry, node);
+	pthread_mutex_unlock(&_ctx->mutex);
+	return 0;
+	
+}
+int update_pptp_user_info( struct pptp_msg* p)
+{
+	__pptp_entry* entry = NULL;
+	__pptp_entry* entry_next = NULL;
+	struct pptp_ctx_st* _ctx = &pptp_ctx;
+	
+	//find it
+	pthread_mutex_lock(&_ctx->mutex);
+    TAILQ_FOREACH_SAFE(entry,&_ctx->_head,node,entry_next)
+	{
+	    if (!strncmp(entry->pptp_info.username,p->username,sizeof(p->username)))
+	    {
+	        //found it;
+	        if(p->action == PPTP_USER_ACTION_LOGOFF)
+	        {
+		        TAILQ_REMOVE(&_ctx->_head,entry,node);
+		        free(entry);  
+		        
+	        }
+	        else
+	        {
+	            memcpy(&entry->pptp_info,p,sizeof(struct pptp_msg));//update it;
+	            
+	        }
+	        goto found_it;
+	    }
+	}
+	
+	pthread_mutex_unlock(&_ctx->mutex);
+//not found it 
+    //new it;
+    __insert_new_pptp_user(p);
+
+    return 0;
+found_it:
+	pthread_mutex_unlock(&_ctx->mutex);
+	return 0;
+	
+}
+
+int _pptp_send_msg_to_outlog(struct pptp_msg* p)
+{
+    char time_str[64];
+	time_t a;
+    char syslog_msg[256];
+    struct in_addr  addr;
+	unsigned char mac[6];
+	char mac_str[32];
+
+    
+	time(&a);
+    ctime_r(&a,time_str);
+    time_str[strlen(time_str)-1] = '\0';
+
+    if(get_wan_ip(&addr)){
+        _u_err_log("get wan ip failed!");
+        return -1;
+    }
+    if(get_iface_mac("eth0",mac)){
+        _u_err_log("get id(eth0) mac failed");
+        return -1;
+    }
+    else
+    {
+	    sprintf(mac_str,"%02X:%02X:%02X:%02X:%02X:%02X",
+	        mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
+    }
+    
+	///_u_log("handle_msg: <%s>",(char*)buf);
+    sprintf(syslog_msg,"LOGON_OFF %s %s %s %s %s %s",
+            time_str, inet_ntoa(addr),mac_str,
+            p->username,p->peerip,p->action == PPTP_USER_ACTION_LOGON?"LOGON":"LOGOFF");
+                
+	_u_log("push msg <%s>",syslog_msg);
+	push_msg_to_log_list(LOGON_OFF_MSG_TYPE,syslog_msg,strlen(syslog_msg));
+	return 0;
+	
+}
+
+int handle_msg(void* buf)
+{
+    struct pptp_msg* p = buf;
+    
+	
+	update_pptp_user_info(p);
+	_pptp_send_msg_to_outlog(p);
 	return 0;
 }
 
@@ -75,7 +241,7 @@ void* pptp_user_mgr(void* arg)
 		if(r > 0){
 			if(recv(fd,buf,sizeof(buf),MSG_DONTWAIT) > 0){
 				//todo
-				handle_msg(buf);
+				handle_msg(buf); //buf is struct pptp_msg.
 			}
 		}
 	} 
@@ -87,7 +253,9 @@ pthread_t pptp_user_mgr_start()
 	int fd = setup_unix_server();
 	if(fd <=0)
 		return -1;
-		
+
+	TAILQ_INIT(&pptp_ctx._head);
+	pptp_ctx._num = 0;
     fcntl(fd,F_SETFD,FD_CLOEXEC);
 	if(pthread_create(&tid,NULL,pptp_user_mgr,(void*)fd)){
 		_u_log("Create pptp_user_mgr fail!");

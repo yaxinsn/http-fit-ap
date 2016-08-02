@@ -1,19 +1,9 @@
-/* ulog_test, $Revision: 1.4 $
- *
- * small testing program for libipulog, part of the netfilter ULOG target
- * for the linux 2.4 netfilter subsystem.
- *
- * (C) 2000 by Harald Welte <laforge@gnumonks.org>
- *
- * this code is released under the terms of GNU GPL
- *
- * $Id: ulog_test.c 286 2002-06-13 12:56:53Z laforge $
- */
+
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <libnetfilter_log/libipulog.h>
+#include <libipulog/libipulog.h>
 #include <unistd.h>
 #include <stdio.h>  
 #include <sys/types.h>  
@@ -34,7 +24,9 @@
 #include "outlog.h"
 #include "_u_log.h"
 #include "url_log.h"
+#include "pptp_user_mgr.h"
 
+#include "linux-utils.h"
 
 
 #define MYBUFSIZ 2048
@@ -134,7 +126,49 @@ int __get_full_request_url(void* src,int len,char* ret_url)
     return  0;
     
 }
+int _url_send_msg_to_outlog(char* url,char* indevname)
+{
+    char time_str[64];
+	time_t a;
+    char syslog_msg[2048];
+    struct in_addr  addr;
+	unsigned char mac[6];
+	char mac_str[32];
 
+    struct pptp_msg p;
+    if(get_pptp_user_info_by_port(indevname,&p))
+    {
+        _u_err_log("get user by port <%s> info failed!",indevname);
+        return -1;
+    }
+	time(&a);
+    ctime_r(&a,time_str);
+    time_str[strlen(time_str)-1] = '\0';
+
+    if(get_wan_ip(&addr)){
+        _u_err_log("get wan ip failed!");
+        return -1;
+    }
+    if(get_iface_mac("eth0",mac)){
+        _u_err_log("get id(eth0) mac failed");
+        return -1;
+    }
+    else
+    {
+	    sprintf(mac_str,"%02X:%02X:%02X:%02X:%02X:%02X",
+	        mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
+    }
+    
+	///_u_log("handle_msg: <%s>",(char*)buf);
+    sprintf(syslog_msg,"LOGON_OFF %s %s %s %s %s %s",
+            time_str, inet_ntoa(addr),mac_str,
+            p.username,p.peerip,p.action == PPTP_USER_ACTION_LOGON?"LOGON":"LOGOFF");
+                
+	_u_log("push msg <%s>",syslog_msg);
+	push_msg_to_log_list(LOGON_OFF_MSG_TYPE,syslog_msg,strlen(syslog_msg));
+	return 0;
+	
+}
 void handle_packet2(ulog_packet_msg_t *pkt)
 {
 
@@ -142,16 +176,14 @@ void handle_packet2(ulog_packet_msg_t *pkt)
 //	int i;
 	int ret;
 	char ret_url[1024];
-	char msg[2048];
+	char indevname = pkt->indev_name;
 	printf("indev %s outdev %s \n",pkt->indev_name,pkt->outdev_name);
 	memset(ret_url,0,sizeof(ret_url));
 	ret = __get_full_request_url(pkt->payload,pkt->data_len,ret_url);
 	if(ret == 0)
 	{
-	    sprintf(msg,"%s",ret_url);
+	    _url_send_msg_to_outlog(ret_url,indevname);
 	    
-	    _u_log("%s: %d url is <%s>\n",__func__,__LINE__,ret_url);
-	    push_msg_to_log_list(URL_MSG_TYPE,msg,strlen(msg));
 	}
 
 }
@@ -238,7 +270,7 @@ int  url_log_start(void)
 	pthread_t tid;
 
 	/* create ipulog handle */
-	h = ipulog_create_handle(ipulog_group2gmask(0), 65535); // group is 0 ,
+	h = ipulog_create_handle(ipulog_group2gmask(0)); // group is 0 ,
 	if (!h)
 	{
 		/* if some error occurrs, print it to stderr */

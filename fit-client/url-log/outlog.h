@@ -12,6 +12,12 @@
 #include <sys/queue.h>
 #include <pthread.h>
 
+#ifndef TAILQ_FOREACH_SAFE
+#define TAILQ_FOREACH_SAFE(var,head,field,tvar)           \
+    for((var) = TAILQ_FIRST((head));                    \
+        (var) &&((tvar) = TAILQ_NEXT((var),field),1);   \
+        (var) = (tvar))
+#endif
 #if 0
 typedef struct url_log_msg_st
 {

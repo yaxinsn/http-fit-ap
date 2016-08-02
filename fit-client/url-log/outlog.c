@@ -21,12 +21,7 @@
 //				: 本机IP 。：   本地时间：读取本地数组：
 //"pptpdurllog" : "2" 'pptpdserverip': 'time:username': 'user_logon_ip(pptp_peer_ip)' : 'on '/off
 
-#ifndef TAILQ_FOREACH_SAFE
-#define TAILQ_FOREACH_SAFE(var,head,field,tvar)           \
-    for((var) = TAILQ_FIRST((head));                    \
-        (var) &&((tvar) = TAILQ_NEXT((var),field),1);   \
-        (var) = (tvar))
-#endif
+
 struct outlog_ctx_st
 {
 	int msg_num;
@@ -114,7 +109,7 @@ int log_mgr_start(void)
 	TAILQ_INIT(&outlog_ctx.msg_head);
 	
 	if(pthread_create(&tid,NULL,log_mgr_pthread,(void*)0)){
-		_u_log("Create pptp_user_mgr fail!\n");
+		_u_err_log("Create pptp_user_mgr fail!\n");
 		return -1;
 	}
 	return tid;
@@ -125,8 +120,10 @@ int push_msg_to_log_list(int type,void* msg,int len)
 	
 	__msg_entry_t* entry = NULL;
 	entry = malloc(sizeof(__msg_entry_t)+len);
-	if(entry == NULL)
+	if(entry == NULL){
+	    _u_err_log("malloc __msg_entry_t is failed!");
 		return -1;
+    }
 	
 	time(&entry->time);
 	entry->msg_type = type;

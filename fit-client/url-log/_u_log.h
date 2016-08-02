@@ -5,8 +5,7 @@
 
 #include <time.h>
 #include <stdarg.h>
-
-
+#include <pthread.h>
 
 int _p_log(const char* func,int line,const char* fmt,...);
 
