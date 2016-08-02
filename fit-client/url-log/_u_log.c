@@ -20,9 +20,9 @@ int _p_log(const char* func,int line,const char* fmt,...)
 	static FILE* log_fp = 0;
 	static int log_line = 0;
 	int fd;
-	char buf[1024]={0};
+	char buf[10240]={0};
 
-	pthread_mutex_lock(&__mutex); 
+	//pthread_mutex_lock(&__mutex); 
 	if(log_fp == NULL)
 	{
 	    log_fp = fopen("/tmp/url_logd.log","w");
@@ -52,7 +52,7 @@ int _p_log(const char* func,int line,const char* fmt,...)
 	    lseek(fd, 0, SEEK_SET);
 	    log_line = 0;
 	}
-	pthread_mutex_unlock(&__mutex); 
+	//pthread_mutex_unlock(&__mutex); 
 	return 0;
 }
 #if 0

@@ -65,7 +65,29 @@ int setup_unix_server()
     }
     return listen_fd;
 }
-
+int get_pptp_user_info_by_srcip(struct in_addr* ip,struct pptp_msg* pptp_info)
+{
+	
+	__pptp_entry* entry = NULL;
+	__pptp_entry* entry_next = NULL;
+	struct pptp_ctx_st* _ctx = &pptp_ctx;
+	struct in_addr localip;
+	//find it
+	pthread_mutex_lock(&_ctx->mutex);
+    TAILQ_FOREACH_SAFE(entry,&_ctx->_head,node,entry_next)
+	{
+	    if(!inet_aton(entry->pptp_info.localip,&localip) && localip.s_addr == ip->s_addr)
+	    {
+	        memcpy(pptp_info,&entry->pptp_info,sizeof(struct pptp_msg));//return it;
+	        goto found_it;
+	    }
+	}
+	
+    return -1;// not find it
+found_it:
+	pthread_mutex_unlock(&_ctx->mutex);
+	return 0;
+}
 int get_pptp_user_info_by_port(char* ifname,
 	struct pptp_msg* pptp_info)
 {
@@ -223,9 +245,9 @@ int handle_msg(void* buf)
 }
 
 
+unsigned char buf[1024];
 void* pptp_user_mgr(void* arg)
 {
-	unsigned char buf[1024];
     struct timeval timerout;
     fd_set fds;
     int r;
@@ -256,6 +278,8 @@ pthread_t pptp_user_mgr_start()
 
 	TAILQ_INIT(&pptp_ctx._head);
 	pptp_ctx._num = 0;
+	
+		_u_log("Create pptp_user_mgr start!");
     fcntl(fd,F_SETFD,FD_CLOEXEC);
 	if(pthread_create(&tid,NULL,pptp_user_mgr,(void*)fd)){
 		_u_log("Create pptp_user_mgr fail!");

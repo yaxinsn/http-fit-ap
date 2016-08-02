@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <libipulog/libipulog.h>
+#include <libnetfilter_log/libipulog.h>
 #include <unistd.h>
 #include <stdio.h>  
 #include <sys/types.h>  
@@ -16,6 +16,9 @@
 #include <string.h>
 #include <pthread.h>
 
+#include <linux/ip.h>
+#include <linux/tcp.h>
+#include <arpa/inet.h>
 
 #include <sys/queue.h>
 #include <stdlib.h>
@@ -29,7 +32,17 @@
 #include "linux-utils.h"
 
 
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <netinet/in.h>
+
+#include <libnetfilter_log/libnetfilter_log.h>
+
 #define MYBUFSIZ 2048
+
+#define URL_MAX_SIZE 1600
 typedef char s8;
 typedef unsigned char u8;
 
@@ -41,6 +54,7 @@ char* strstr_in_uchar(u8* src,int len,s8* key)
     int key_len = strlen(key);
     int i;
     u8* q;
+   // printf("p %s\n",p);
     while(p <end)
     {
         if(*p != (u8)key[0])
@@ -48,42 +62,42 @@ char* strstr_in_uchar(u8* src,int len,s8* key)
             p++;
             continue;
         }
-        q = p;
-        for(i=0;i<key_len;i++)
-        {
-            if((u8)key[i] != q[i]){
-                goto t1;
-            }
-            
-        }
-        break;
-        t1:
+        q = strstr(p,key);
+        if(q != NULL)
+            return q;
+        p +=strlen(p);
+        //p++;
         continue;
     }
+    if(p >=end)
+        return NULL;
+        
     return (char*)p;
 }
-int __get_full_request_url(void* src,int len,char* ret_url)
+int __get_full_request_url(void* src,int len,char* sret_url)
 {
     char* endp = NULL;
     char* p = NULL;
     char* item_GET = NULL;
     char* uri;
     char* host=NULL;
+    int l;
     
-    endp = src;
+    endp = (char*)src;
     endp += len - 1;
-    
-    item_GET = strstr_in_uchar(src,len,"GET ");
+    item_GET = strstr_in_uchar(src,len,"GET");
+    //printf("Item get %p \n",item_GET);
     if(item_GET == NULL)
         return -1;
     uri = item_GET+4;
-
 
     p = uri;
     while( p <endp && (*p != ' ' && *p != '\t')){
         p++;
     };
+    
     *p++='\0';  //set str's end; set url's end.
+	printf("%s:%d uri %.*s\n",__func__,__LINE__,1024,uri);
     if(strstr(uri,".png")
         ||strstr(uri,".jpg")
         ||strstr(uri,".jpeg")
@@ -103,55 +117,84 @@ int __get_full_request_url(void* src,int len,char* ret_url)
         {
             p++;
         }
-        if( p > endp)
+        if( p >= endp){
             break;
+        }
         if(*p == '\r' && *(p+1) == '\n')
         {
             *p = '\0';
             p+=2;
-            if (host) //find it .so byby
-                break;
+            if (host){ //find it .so byby
+            
+              //  printf("%s:%d host %s \n",__func__,__LINE__,host);
+                goto out;
+            }
             if(strncasecmp(p,"Host:",5) == 0)
             {
                 p +=5+1;
                 host = p;
+                continue;
+                //printf("%s:%d host %p \n",__func__,__LINE__,host);
+                //break;
             }
         }
         p++;
     }
+
     if(host == NULL)
         return -2;
-
-    sprintf(ret_url,"http://%s%s",host,uri);
-    return  0;
+out:
+    l = sprintf(sret_url,"http://%s%.*s",host,140,uri);
+    //strncpy(sret_url+l,uri,URL_MAX_SIZE - l);
+    return 0;
     
 }
-int _url_send_msg_to_outlog(char* url,char* indevname)
+char* syslog_msg;
+#define MAX_SYSLOG_MSG 2048
+int _url_send_msg_to_outlog(char* url,char* ip)
 {
     char time_str[64];
 	time_t a;
-    char syslog_msg[2048];
     struct in_addr  addr;
 	unsigned char mac[6];
 	char mac_str[32];
-
+    int ret;
+    struct in_addr srcip;
     struct pptp_msg p;
-    if(get_pptp_user_info_by_port(indevname,&p))
+    int len;
+
+    if(inet_aton(ip,&srcip))
     {
-        _u_err_log("get user by port <%s> info failed!",indevname);
+        
+        _u_err_log(" str ip(%s) change to in_addr failed",ip);
         return -1;
     }
+    if(get_pptp_user_info_by_srcip(&srcip,&p))
+    {
+        _u_err_log("get user by srcip <%s> info failed!",ip);
+        return -1;
+    }
+    if(syslog_msg == NULL){
+    	syslog_msg = malloc(MAX_SYSLOG_MSG);
+    	if(syslog_msg == NULL){
+    	    _u_err_log(" malloc ret_url failed ");    
+    	    return -1;
+    	}
+	}
+	memset(syslog_msg,0,MAX_SYSLOG_MSG);
 	time(&a);
     ctime_r(&a,time_str);
     time_str[strlen(time_str)-1] = '\0';
 
     if(get_wan_ip(&addr)){
         _u_err_log("get wan ip failed!");
-        return -1;
+        ret = -1;
+        goto err;
     }
     if(get_iface_mac("eth0",mac)){
         _u_err_log("get id(eth0) mac failed");
-        return -1;
+        ret = -1;
+        goto err;
     }
     else
     {
@@ -160,34 +203,56 @@ int _url_send_msg_to_outlog(char* url,char* indevname)
     }
     
 	///_u_log("handle_msg: <%s>",(char*)buf);
-    sprintf(syslog_msg,"LOGON_OFF %s %s %s %s %s %s",
+    len = sprintf(syslog_msg,"URL %s %s %s %s %s ",
             time_str, inet_ntoa(addr),mac_str,
-            p.username,p.peerip,p.action == PPTP_USER_ACTION_LOGON?"LOGON":"LOGOFF");
-                
-	_u_log("push msg <%s>",syslog_msg);
-	push_msg_to_log_list(LOGON_OFF_MSG_TYPE,syslog_msg,strlen(syslog_msg));
-	return 0;
+            p.username,p.peerip);
+    strncpy(syslog_msg+len,url,MAX_SYSLOG_MSG - len);
+	_u_log("push msg <%.*s>",MAX_SYSLOG_MSG,syslog_msg);
+	push_msg_to_log_list(URL_MSG_TYPE,syslog_msg,strlen(syslog_msg));
+	ret = 0;
+err:
+   // free(syslog_msg);
+    return ret;
 	
 }
+char* ret_url;
 void handle_packet2(ulog_packet_msg_t *pkt)
 {
 
 //	unsigned char *p;
 //	int i;
+    char* http_hdr;
 	int ret;
-	char ret_url[1024];
+	struct iphdr* iphd;
+	struct tcphdr* tcphd;
+	if(ret_url == NULL){
+	ret_url = malloc(URL_MAX_SIZE);
+	if(ret_url == NULL){
+	    _u_err_log(" malloc ret_url failed ");    
+	    return;
+	}
+	}
 	char indevname = pkt->indev_name;
-	printf("indev %s outdev %s \n",pkt->indev_name,pkt->outdev_name);
-	memset(ret_url,0,sizeof(ret_url));
-	ret = __get_full_request_url(pkt->payload,pkt->data_len,ret_url);
+	memset(ret_url,0,URL_MAX_SIZE);
+	//printf("pkt->date_len %d\n",pkt->data_len);
+	
+	iphd = pkt->payload;
+	tcphd = pkt->payload+sizeof(struct iphdr);
+	//printf(" srcip %x dest ip %x \n", iphd->saddr,iphd->daddr);
+	http_hdr = pkt->payload+sizeof(struct iphdr)+sizeof(struct tcphdr);
+	
+	ret = __get_full_request_url(http_hdr,pkt->data_len,ret_url);
 	if(ret == 0)
 	{
-	    _url_send_msg_to_outlog(ret_url,indevname);
+	    _u_log("uri : %.*s  ",URL_MAX_SIZE,ret_url);
+	    printf("uri : %.*s\n",URL_MAX_SIZE,ret_url);
+	    //_url_send_msg_to_outlog(ret_url,iphd->saddr);
 	    
 	}
+	//free(ret_url);
 
 }
-
+#if 0
 /* prints some logging about a single packet */
 void handle_packet(ulog_packet_msg_t *pkt)
 {
@@ -195,6 +260,7 @@ void handle_packet(ulog_packet_msg_t *pkt)
 	int i;
 	int ret;
 	char ret_url[1024];
+	
 	printf("Hook=%u Mark=%lu len=%zu ",
 	       pkt->hook, pkt->mark, pkt->data_len);
 	if (strlen(pkt->prefix))
@@ -208,7 +274,7 @@ void handle_packet(ulog_packet_msg_t *pkt)
 			printf("%02x%c", *p, i==pkt->mac_len-1 ? ' ':':');
 	}
 	printf("indev %s outdev %s \n",pkt->indev_name,pkt->outdev_name);
-#if 0
+#if 1
 	for(i = 0;i<pkt->data_len;i++)
 	{
 	    printf("%02x ",pkt->payload[i]);
@@ -228,32 +294,44 @@ void handle_packet(ulog_packet_msg_t *pkt)
 	printf("+++++++++++++++++++++++++++++++\n");
 
 }
-
-//	alarm(atoi(argv[3]));
+#endif
 void* url_pkt_pthread(void* arg)
 {
 
 	struct ipulog_handle *h = arg;
 
+	struct nflog_handle *hd = h->nfulh;
     unsigned char* buf;
     int len;
     ulog_packet_msg_t *upkt;
+    int fd = nflog_fd(hd);
+    int rv;
 
 	/* allocate a receive buffer */
 	buf = malloc(MYBUFSIZ);
 	if (!buf)
 	    return 0;
 	
-
+    _u_log("------------");
 	/* loop receiving packets and handling them over to handle_packet */
 	while(1){
 		len = ipulog_read(h, buf, MYBUFSIZ, 1);
 		if (len <= 0) {
 			ipulog_perror("ulog_test: short read");
+			continue;
 			
 		}
-		while ((upkt = ipulog_get_packet(h, buf, len)) != NULL) {
+		while (1) {
+		upkt = ipulog_get_packet(h, buf, len);
+		    if(upkt != NULL){
+            //handle_packet(upkt);
 			handle_packet2(upkt);
+			}
+			else
+			{
+			    break;
+			}
+			
 		}
 	}
 	
@@ -270,11 +348,11 @@ int  url_log_start(void)
 	pthread_t tid;
 
 	/* create ipulog handle */
-	h = ipulog_create_handle(ipulog_group2gmask(0)); // group is 0 ,
+	h = ipulog_create_handle(ipulog_group2gmask(2),65535); // group is 0 ,
 	if (!h)
 	{
 		/* if some error occurrs, print it to stderr */
-		ipulog_perror(NULL);
+		ipulog_perror("ipulog_create_handle");
 		return -1;
 	}
 		
@@ -284,4 +362,28 @@ int  url_log_start(void)
 	}
 	return tid;
 }
+
+
+int  url_log_start2(void)
+{
+   
+	struct ipulog_handle *h;
+	/* create ipulog handle */
+	h = ipulog_create_handle(ipulog_group2gmask(2),65535); // group is 0 ,
+	if (!h)
+	{
+		/* if some error occurrs, print it to stderr */
+		ipulog_perror("ipulog_create_handle");
+		return -1;
+	} 
+	//if (nflog_set_mode(h->nful_gh,NFULNL_COPY_PACKET, 0xffff) < 0) {
+	//	fprintf(stderr, "can't set packet copy mode\n");
+	//	exit(1);
+	//}
+	url_pkt_pthread(h);
+	
+}
+
+
+
 

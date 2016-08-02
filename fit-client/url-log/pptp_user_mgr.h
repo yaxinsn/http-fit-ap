@@ -30,5 +30,6 @@ struct pptp_msg{
 
 int get_pptp_user_info_by_port(char* ifname,
 	struct pptp_msg* pptp_info);
+int get_pptp_user_info_by_srcip(struct in_addr* ip,struct pptp_msg* pptp_info);
 #endif
 
