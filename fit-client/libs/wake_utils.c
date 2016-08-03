@@ -54,9 +54,11 @@ void sleep_down(_wake_* w)
             w->waiting = 0;  //go to work.
             break;
     	}
-#if 0    	
-    	else
-    	    outlog_ctx.waiting = 0; //go to work.
+#if 1    	
+    	else{
+    	    w->waiting = 0; //go to work.
+    	    break;
+    	}
 #endif    	    
 	}
 	return; 

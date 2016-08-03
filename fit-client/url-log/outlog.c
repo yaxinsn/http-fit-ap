@@ -1,4 +1,5 @@
-#include <syslog.h>
+ #include <sys/types.h>
+ #include <syslog.h>
 #include <errno.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -8,7 +9,7 @@
 #include <sys/select.h>
 #include <sys/time.h>
 #include <stdlib.h>
-
+#include <netdb.h>
 #include "outlog.h"
 
 #include "wake_utils.h"
@@ -16,6 +17,14 @@
 #include "_u_log.h"
 
 
+struct log_mgr_ctx
+{
+
+    struct in_addr syslog_ip;
+    int sock;
+    struct sockaddr_in server_addr; 
+};
+static struct log_mgr_ctx log_ctx;
 
 //"pptpdurllog" : "1" 'pptpdserverip': 'time:username': 'user_logon_ip(pptp_peer_ip)' : 'url'
 //				: 本机IP 。：   本地时间：读取本地数组：
@@ -43,11 +52,32 @@ int outlog()
 	closelog();
 	return 0;
 }
+
+
+#define BUFFER_SIZE 1900
+#define LOG_FACILITY_LOCAL_4  20
+#define LOG_SEVERITY_NOTICE   5
+int syslog_x(int log_level,char* msg)
+{
+     char buffer[BUFFER_SIZE];
+     int l;
+     bzero(buffer, BUFFER_SIZE);
+     l = sprintf(buffer,"<%d>",(LOG_FACILITY_LOCAL_4<<3)+LOG_SEVERITY_NOTICE); ///
+     strncpy(buffer+l,msg,BUFFER_SIZE-l);
+     l = strlen(buffer);
+     
+     if(sendto(log_ctx.sock, buffer,l ,0,(struct sockaddr*)&log_ctx.server_addr,sizeof(log_ctx.server_addr)) < 0)   
+     {
+        _u_err_log("Send File Name Failed:%s",strerror(errno));
+        
+     }  
+    return 0;
+}
 void __send_logon_msg(char* msg,int len)
 {
 	
     _u_log("%s:%d to syslog msg is <%s>\n",__func__,__LINE__,msg);
-	syslog(LOG_INFO,"LOGON_OFF %s",msg);
+	syslog_x(LOG_INFO,msg);
 	return;
 }
 void __send_url_msg(char* msg,int len)
@@ -56,8 +86,8 @@ void __send_url_msg(char* msg,int len)
     //ctime_r(&lmsg->time,time_str);
     //time_str[strlen(time_str)-1] = '\0';
     _u_log("%s:%d to syslog msg is <%s>\n",__func__,__LINE__,msg);
-
-    syslog(LOG_INFO,"URL %s",msg);
+printf("%s:%d\n",__func__,__LINE__);
+    syslog_x(LOG_INFO,msg);
     return;
 }
 int output_msg(struct outlog_ctx_st* _ctx )
@@ -70,6 +100,7 @@ int output_msg(struct outlog_ctx_st* _ctx )
 	TAILQ_FOREACH_SAFE(entry,&_ctx->msg_head,node,entry_next)
 	{
 
+        printf("%s:%d entry %p entry->msg_type %d \n",__func__,__LINE__,entry,entry->msg_type);
 		switch(entry->msg_type)
 		{
 			case URL_MSG_TYPE:
@@ -95,15 +126,59 @@ void* log_mgr_pthread(void* arg)
     {
         
         output_msg(&outlog_ctx);
+        printf("%s:%d\n",__func__,__LINE__);
 	    sleep_down(&outlog_ctx.wake);
 	}
 }
+int __get_syslog_ip_byname(char* name,struct in_addr* ret)
+{
+    struct addrinfo hints, *result,*curr;
+    int s;
+    struct sockaddr_in* sin_ip;
 
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    s = getaddrinfo(name,NULL,&hints,&result);
+    if(s != 0)
+    {
+        return -1;
+    }
+    for(curr = result; curr != NULL;curr = curr->ai_next)
+    {
+        sin_ip = (struct sockaddr_in*)result->ai_addr;
+        memcpy(ret,&sin_ip->sin_addr,sizeof(struct in_addr));
+        s = 0;
+    }
+    freeaddrinfo(result);
+    return s;
+}
 int log_mgr_start(void)
 {
 	pthread_t tid;
-	openlog("pptpd_urllog",  LOG_CONS | LOG_PID, LOG_USER);
-
+	//openlog("pptpd_urllog",  LOG_PID, LOG_USER);
+    
+    if(!__get_syslog_ip_byname("log.ipyun.cc",&log_ctx.syslog_ip))
+    {
+        _u_log("syslog server ip %x %s",log_ctx.syslog_ip.s_addr,inet_ntoa(log_ctx.syslog_ip));
+        log_ctx.sock = socket(AF_INET,SOCK_DGRAM,0);
+        if(log_ctx.sock < 0)
+        {
+            
+            _u_err_log("cannot create  socket : %s",strerror(errno));  
+            return -1;
+        }
+        log_ctx.server_addr.sin_family = AF_INET;
+        log_ctx.server_addr.sin_addr.s_addr = log_ctx.syslog_ip.s_addr;
+        log_ctx.server_addr.sin_port = htons(514);  
+	
+    }
+    else
+    {
+    
+        _u_err_log("cannot get syslog ip  %s",strerror(errno)); 
+        return -1;
+    }
     wake_init(&outlog_ctx.wake);
 	
 	TAILQ_INIT(&outlog_ctx.msg_head);

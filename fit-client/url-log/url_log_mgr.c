@@ -164,13 +164,13 @@ int _url_send_msg_to_outlog(char* url,int ip)
     srcip.s_addr = ip;
 
 
-    printf("%s:%d\n",__func__,__LINE__);
+    //printf("%s:%d\n",__func__,__LINE__);
     if(get_pptp_user_info_by_srcip(&srcip,&p))
     {
         _u_err_log("get user by srcip <%s> info failed!",inet_ntoa(srcip));
         return -1;
     }
-    printf("%s:%d\n",__func__,__LINE__);
+    //printf("%s:%d\n",__func__,__LINE__);
     if(syslog_msg == NULL){
     	syslog_msg = malloc(MAX_SYSLOG_MSG);
     	if(syslog_msg == NULL){
@@ -183,7 +183,7 @@ int _url_send_msg_to_outlog(char* url,int ip)
     ctime_r(&a,time_str);
     time_str[strlen(time_str)-1] = '\0';
 
-    printf("%s:%d\n",__func__,__LINE__);
+    //printf("%s:%d\n",__func__,__LINE__);
     if(get_wan_ip(&addr)){
         _u_err_log("get wan ip failed!");
         ret = -1;
@@ -200,13 +200,13 @@ int _url_send_msg_to_outlog(char* url,int ip)
 	        mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
     }
     
-    printf("%s:%d\n",__func__,__LINE__);
+    //printf("%s:%d\n",__func__,__LINE__);
 	///_u_log("handle_msg: <%s>",(char*)buf);
-    len = sprintf(syslog_msg,"URL %s %s %s %s %s ",
+    len = sprintf(syslog_msg,"URL, %s, %s, %s, %s, %s, ",
             time_str, inet_ntoa(addr),mac_str,
             p.username,p.peerip);
             
-    printf("%s:%d\n",__func__,__LINE__);
+    //printf("%s:%d\n",__func__,__LINE__);
     strncpy(syslog_msg+len,url,MAX_SYSLOG_MSG - len);
 	_u_log("push msg <%.*s>",MAX_SYSLOG_MSG,syslog_msg);
 	push_msg_to_log_list(URL_MSG_TYPE,syslog_msg,strlen(syslog_msg));
@@ -245,7 +245,7 @@ void handle_packet2(ulog_packet_msg_t *pkt)
 	if(ret == 0)
 	{
 	    _u_log("uri : %.*s  ",URL_MAX_SIZE,ret_url);
-	    printf("uri : %.*s\n",URL_MAX_SIZE,ret_url);
+	    //printf("uri : %.*s\n",URL_MAX_SIZE,ret_url);
 	    _url_send_msg_to_outlog(ret_url,iphd->saddr);
 	    
 	}
@@ -351,12 +351,12 @@ int  url_log_start(void)
 	if (!h)
 	{
 		/* if some error occurrs, print it to stderr */
-		ipulog_perror("ipulog_create_handle");
+		_u_err_log("ipulog_create_handle");
 		return -1;
 	}
 		
 	if(pthread_create(&tid,NULL,url_pkt_pthread,(void*)h)){
-		printf("Create url_pkt_pthread fail!\n");
+		_u_err_log("Create url_pkt_pthread fail!\n");
 		return -1;
 	}
 	return tid;
@@ -372,7 +372,7 @@ int  url_log_start2(void)
 	if (!h)
 	{
 		/* if some error occurrs, print it to stderr */
-		ipulog_perror("ipulog_create_handle");
+		_u_err_log("ipulog_create_handle");
 		return -1;
 	} 
 	//if (nflog_set_mode(h->nful_gh,NFULNL_COPY_PACKET, 0xffff) < 0) {

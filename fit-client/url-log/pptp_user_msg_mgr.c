@@ -74,19 +74,23 @@ int get_pptp_user_info_by_srcip(struct in_addr* ip,struct pptp_msg* pptp_info)
 	struct in_addr localip;
 	//find it
 	
-    printf("%s:%d\n",__func__,__LINE__);
+   // printf("%s:%d\n",__func__,__LINE__);
 	pthread_mutex_lock(&_ctx->mutex);
     TAILQ_FOREACH_SAFE(entry,&_ctx->_head,node,entry_next)
 	{
-        printf("%s:%d entry %p\n",__func__,__LINE__,entry);
-	    if(!inet_aton(entry->pptp_info.localip,&localip) && localip.s_addr == ip->s_addr)
-	    {
-	        memcpy(pptp_info,&entry->pptp_info,sizeof(struct pptp_msg));//return it;
-	        goto found_it;
+       // printf("%s:%d entry %p  localip %s \n",__func__,__LINE__,entry,entry->pptp_info.localip);
+	    if(inet_aton(entry->pptp_info.localip,&localip)) //OK
+        {
+         //   printf("%s: %d  locaip %x, dest ip %x",__func__,__LINE__,localip.s_addr,ip->s_addr);
+    	    if(localip.s_addr == ip->s_addr)
+    	    {
+    	        memcpy(pptp_info,&entry->pptp_info,sizeof(struct pptp_msg));//return it;
+    	        goto found_it;
+    	    }
 	    }
 	}
 	
-    printf("%s:%d\n",__func__,__LINE__);
+   // printf("%s:%d\n",__func__,__LINE__);
 	pthread_mutex_unlock(&_ctx->mutex);
     return -1;// not find it
 found_it:
@@ -154,7 +158,7 @@ int __insert_new_pptp_user( struct pptp_msg* p)
     }
     memcpy(&entry->pptp_info,p,sizeof(struct pptp_msg));
 	pthread_mutex_lock(&_ctx->mutex);
-	
+	_u_log(" add entry %p user: %s lcoal ip %s",entry,p->username,p->localip);
 	TAILQ_INSERT_TAIL(&_ctx->_head, entry, node);
 	pthread_mutex_unlock(&_ctx->mutex);
 	return 0;
@@ -229,7 +233,7 @@ int _pptp_send_msg_to_outlog(struct pptp_msg* p)
     }
     
 	///_u_log("handle_msg: <%s>",(char*)buf);
-    sprintf(syslog_msg,"LOGON_OFF %s %s %s %s %s %s",
+    sprintf(syslog_msg,"LOGON_OFF, %s, %s, %s, %s, %s, %s",
             time_str, inet_ntoa(addr),mac_str,
             p->username,p->peerip,p->action == PPTP_USER_ACTION_LOGON?"LOGON":"LOGOFF");
                 

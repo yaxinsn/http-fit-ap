@@ -15,8 +15,8 @@
 #include <stdio.h>
 #include <errno.h>
 #include <pppd/pppd.h>
-#include <pppd/ipcp.h>
 #include <pppd/fsm.h>
+#include <pppd/ipcp.h>
 
 char pppd_version[] = VERSION;
 
@@ -125,20 +125,28 @@ static void output_user_file()
     struct pptp_msg msg;
     pid_t pid = getpid();
     pid_t fpid = getppid();
+  ipcp_options *ho = &ipcp_hisoptions[0];
+  
+    ipcp_options *go = &ipcp_gotoptions[0];
+    ipcp_options *wo = &ipcp_wantoptions[0];
     sprintf(file,"/tmp/pptpd/%s",user);
     
+    
+    
+    notice("pptpd-logwtmp.so ip-up rem ip %x local ip %x ------------\n",ho->hisaddr,go->ouraddr);
     fp = fopen(file,"w+");
     if(!fp)
     {
         notice("output_user_file: open %s failed",file);
         return;
     }
-    fprintf(fp,"%s %s %s %d %d\n",ifname,user,pptpd_original_ip,pid,fpid);
+    fprintf(fp,"%s %s %s %s %d %d\n",ifname,user,inet_ntoa(ho->hisaddr),pptpd_original_ip,pid,fpid);
     fflush(fp);
     fclose(fp);
     strncpy(msg.username,user,sizeof(msg.username));
     strncpy(msg.port,ifname,sizeof(msg.port));
     strncpy(msg.peerip,pptpd_original_ip,sizeof(msg.peerip));
+    strncpy(msg.localip,inet_ntoa(ho->hisaddr),sizeof(msg.localip));
 
     msg.pppd_pid = pid;
     msg.pptp_pid = fpid;
@@ -163,13 +171,6 @@ static int check_user_logon(void)
 static void ip_up(void *opaque, int arg)
 {
   char *user = reduce(peer_authname);
-  ipcp_options *ho = &ipcp_hisoptions[0];
-  
-    ipcp_options *go = &ipcp_gotoptions[0];
-    ipcp_options *wo = &ipcp_wantoptions[0];
-    
-    
-    notice("pptpd-logwtmp.so ip-up rem ip %x local ip %x ------------\n",ho->hisaddr,go->ouraddr);
 	   
   if (debug)
     notice("pptpd-logwtmp.so ip-up %s %s %s", ifname, user, 
@@ -205,7 +206,7 @@ void delete_user_file()
 
     msg.pppd_pid = pid;
     msg.pptp_pid = fpid;
-    msg.action = 0; //logon;
+    msg.action = 1; //logoff;
     send_user_info_to_urllog(&msg);
 }
 static void ip_down(void *opaque, int arg)

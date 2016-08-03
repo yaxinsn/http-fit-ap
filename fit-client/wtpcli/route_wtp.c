@@ -339,6 +339,8 @@ int __set_remoteip_pptpd()
     __system(cmd);
     sprintf(cmd,"iptables -t filter -I  delegate_forward -s %s/24 -j ACCEPT",remote_ip);
     __system(cmd);
+    sprintf(cmd,"iptables -t filter -I  FORWARD %s/24 -p tcp --dport 80 -m string --algo kmp --string \"GET\"  -j NFLOG  --nflog-prefix 'http_get'   --nflog-group 2",remote_ip);
+    __system(cmd);
 	return 0;
     
 }
@@ -397,7 +399,7 @@ cat pptpd
     }
     
     __set_remoteip_pptpd();
-    __system("/usr/sbin/pptpd -w -d -c "PPTP_CONF);
+    __system("/usr/sbin/pptpd -w  -c "PPTP_CONF);
     free_json(json_obj);
     return 0;
     
