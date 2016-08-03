@@ -339,7 +339,7 @@ int __set_remoteip_pptpd()
     __system(cmd);
     sprintf(cmd,"iptables -t filter -I  delegate_forward -s %s/24 -j ACCEPT",remote_ip);
     __system(cmd);
-    sprintf(cmd,"iptables -t filter -I  FORWARD %s/24 -p tcp --dport 80 -m string --algo kmp --string \"GET\"  -j NFLOG  --nflog-prefix 'http_get'   --nflog-group 2",remote_ip);
+    sprintf(cmd,"iptables -t filter -I  FORWARD -s %s/24 -p tcp --dport 80 -m string --algo kmp --string \"GET\"  -j NFLOG  --nflog-prefix 'http_get'   --nflog-group 2",remote_ip);
     __system(cmd);
 	return 0;
     
