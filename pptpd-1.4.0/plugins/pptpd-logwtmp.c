@@ -15,6 +15,8 @@
 #include <stdio.h>
 #include <errno.h>
 #include <pppd/pppd.h>
+#include <pppd/ipcp.h>
+#include <pppd/fsm.h>
 
 char pppd_version[] = VERSION;
 
@@ -161,6 +163,14 @@ static int check_user_logon(void)
 static void ip_up(void *opaque, int arg)
 {
   char *user = reduce(peer_authname);
+  ipcp_options *ho = &ipcp_hisoptions[0];
+  
+    ipcp_options *go = &ipcp_gotoptions[0];
+    ipcp_options *wo = &ipcp_wantoptions[0];
+    
+    
+    notice("pptpd-logwtmp.so ip-up rem ip %x local ip %x ------------\n",ho->hisaddr,go->ouraddr);
+	   
   if (debug)
     notice("pptpd-logwtmp.so ip-up %s %s %s", ifname, user, 
 	   pptpd_original_ip);
