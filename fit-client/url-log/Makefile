@@ -9,9 +9,9 @@
 CC=$(TARGET_CC)
 LD=$(TARGET_LD)
 CXXFLAGS += -Wall -g -I../libs 
-CXXFLAGS += $(TARGET_CPPFLAGS) -include $(BUILD_DIR)/libnetfilter_log-1.0.1/include/libnetfilter_log/libipulog.h  
+CXXFLAGS += $(TARGET_CPPFLAGS) -include libipulog.h  
 $(warning "CXX $(CXX)"   CC $(CC));
-CXXLDFLAGS = $(TARGET_LDFLAGS) -lpthread -L./ -lnetfilter_log -lnetfilter_log_libipulog 
+CXXLDFLAGS = $(TARGET_LDFLAGS) -lpthread -L./ -lnetfilter_log -L$(BUILD_DIR)/libnetfilter_log-1.0.1/ipkg-install/usr/lib/ -lnetfilter_log_libipulog 
 LIBSRC = wake_utils.c linux-utils.c
 src = $(wildcard *.c)
 obj = $(src:.c=.o)

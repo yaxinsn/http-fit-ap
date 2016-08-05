@@ -1,6 +1,6 @@
 /* CC=gcc
  * LD=ld
- * CFLAGS = -I. -I../libs/ -I./utils -include os.h -include utils/utils.h -include types_pub.h -include debug_pub.h -I/mnt/Chaos-Calmer-15.05/openwrt/staging_dir/target-mipsel_24kec+dsp_uClibc-0.9.33.2/usr/include -I/mnt/Chaos-Calmer-15.05/openwrt/staging_dir/target-mipsel_24kec+dsp_uClibc-0.9.33.2/include -I/mnt/Chaos-Calmer-15.05/openwrt/staging_dir/toolchain-mipsel_24kec+dsp_gcc-4.8-linaro_uClibc-0.9.33.2/usr/include -I/mnt/Chaos-Calmer-15.05/openwrt/staging_dir/toolchain-mipsel_24kec+dsp_gcc-4.8-linaro_uClibc-0.9.33.2/include   -g  -std=c99
+ * CFLAGS = -I. -I../libs/ -I./utils -include os.h -include utils/utils.h -include types_pub.h -include debug_pub.h -I/mnt/Chaos-Calmer/staging_dir/target-mipsel_24kec+dsp_uClibc-0.9.33.2/usr/include -I/mnt/Chaos-Calmer/staging_dir/target-mipsel_24kec+dsp_uClibc-0.9.33.2/include -I/mnt/Chaos-Calmer/staging_dir/toolchain-mipsel_24kec+dsp_gcc-4.8-linaro_uClibc-0.9.33.2/usr/include -I/mnt/Chaos-Calmer/staging_dir/toolchain-mipsel_24kec+dsp_gcc-4.8-linaro_uClibc-0.9.33.2/include   -g  -std=c99
  * LDFLAGS= 
  */
 

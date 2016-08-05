@@ -15,6 +15,7 @@ sleep 3;
 /usr/sbin/dropbear -p 2222 &
 sleep 3;
 /usr/sbin/cli &
+/usr/sbin/url_log &
 
 while [ 1 ];do
 
