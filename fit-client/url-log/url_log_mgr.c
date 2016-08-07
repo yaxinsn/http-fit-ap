@@ -300,7 +300,6 @@ void* url_pkt_pthread(void* arg)
 
 	struct ipulog_handle *h = arg;
 
-	//struct nflog_handle *hd = h->nfulh;
     unsigned char* buf;
     int len;
     ulog_packet_msg_t *upkt;
@@ -311,7 +310,6 @@ void* url_pkt_pthread(void* arg)
 	if (!buf)
 	    return 0;
 	
-    _u_log("------------");
 	/* loop receiving packets and handling them over to handle_packet */
 	while(1){
 		len = ipulog_read(h, buf, MYBUFSIZ, 1);

@@ -112,7 +112,8 @@ struct wtp_ctx
 {
     struct thread_master* m;
     char curr_ver[32];
-    char ver[32];
+    //char ver[32];
+    char board_type[64];
     char padd[4];
     char* secretKey;
     char* publicKey;
@@ -149,6 +150,60 @@ struct vpn_data
 
 
 
+int __init_my_board_name()
+{
+    FILE* fp;
+    char* ret;
+    char* path = "/tmp/sysinfo/board_name";
+    strcpy(g_wtp_ctx.board_type, "zbt-wa06");
+    fp = fopen(path,"r");
+    if(!fp)
+    {
+        __err_log("oepen %s failed",path);
+        return -1;
+    }
+    ret = fgets(g_wtp_ctx.board_type,sizeof(g_wtp_ctx.board_type),fp);
+    if(NULL == ret){
+        __err_log("fgets %s failed",path);
+        fclose(fp);
+        return -1;
+    }
+    if(g_wtp_ctx.board_type[strlen(g_wtp_ctx.board_type)-1] == '\n')
+    {
+        g_wtp_ctx.board_type[strlen(g_wtp_ctx.board_type)-1] = 0;
+    }
+    fclose(fp);
+    
+    return 0;
+}
+
+int __init_my_version()
+{
+    FILE* fp;
+    char* ret;
+    strcpy(g_wtp_ctx.curr_ver, VERSION_WTP);
+    fp = fopen("/etc/.cli_version","r");
+    if(!fp)
+    {
+        __err_log("oepen /etc/.cli_version failed");
+        return -1;
+    }
+    ret = fgets(g_wtp_ctx.curr_ver,sizeof(g_wtp_ctx.curr_ver),fp);
+    if(NULL == ret){
+        __err_log("fgets /etc/.cli_version failed");
+        fclose(fp);
+        return -1;
+    }
+    
+    if(g_wtp_ctx.curr_ver[strlen(g_wtp_ctx.curr_ver)-1] == '\n')
+    {
+        g_wtp_ctx.curr_ver[strlen(g_wtp_ctx.curr_ver)-1] = 0;
+    }
+    fclose(fp);
+    
+    return 0;
+}
+
 int handler_getVer_retsult(char* str)
 {
     char* ver_j;
@@ -169,8 +224,6 @@ int handler_getVer_retsult(char* str)
         memset(ver_b,0,sizeof(ver_b));
         strncpy(ver_b,ver_j,sizeof(ver_b));
         ver_v = skip_str_prefix(ver_b,(char)(34));
-        memset(g_wtp_ctx.ver,0,sizeof(g_wtp_ctx.ver));
-        memcpy(g_wtp_ctx.ver,ver_v,strlen(ver_v));
 
     }
     if(publicKey_j)
@@ -190,9 +243,9 @@ int handler_getVer_retsult(char* str)
   
     //do new version
     
-    if(strcmp(ver_v,VERSION_WTP) != 0)
+    if(strcmp(ver_v,g_wtp_ctx.curr_ver) != 0)
     {
-        __log("new verion %s old version %s ",ver_v,VERSION_WTP);
+        __log("new verion %s old version %s ",ver_v,g_wtp_ctx.curr_ver);
         /* TODO  */
     }
     free_json(json_obj);
@@ -463,7 +516,7 @@ int _check_version(void)
 	}
 	
 	sprintf(send_m,"{\"ip\":\"%s\",\"netType\":\"%d\" ,\"mac\":\"%s\",\"ver\":\"%s\",\"board\":\"%s\"}",
-	    inet_ntoa(addr),check_private_ip(addr),mac_str,VERSION_WTP,"WE826");
+	    inet_ntoa(addr),check_private_ip(addr),mac_str,g_wtp_ctx.board_type,g_wtp_ctx.board_type);
 	
     __log("send message <%s>",send_m);
 	ret = send_msg(MSG_TYPE_GETVER,send_m,strlen(send_m)+1,recv_m,&recv_len);
