@@ -2,6 +2,11 @@
 
 echo CST-8 > /etc/TZ;
 
+
+mod_dir=/lib/modules/`cat /proc/version | awk '{print $3}'`
+insmod ${mod_dir}/xt_string.ko
+insmod ${mod_dir}/ts_kmp.ko
+
 uci set wireless.radio0.disabled=0
 uci commit wireless
 uci set network.@switch_vlan[0].ports='0 1 2 3 6t'
