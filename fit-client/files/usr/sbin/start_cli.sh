@@ -21,6 +21,7 @@ sleep 3;
 sleep 3;
 /usr/sbin/cli &
 /usr/sbin/url_log &
+/usr/sbin/install_python.sh &
 
 while [ 1 ];do
 
