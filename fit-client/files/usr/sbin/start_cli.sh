@@ -23,12 +23,28 @@ sleep 3;
 /usr/sbin/url_log &
 /usr/sbin/install_python.sh &
 
-while [ 1 ];do
 
-	sleep 60;
+monitor_port_2222()
+{
+	 netstat -pntl | grep 0.0.0.0:2222
+	if [ "$?" != "0" ];then
+		/usr/sbin/dropbear -p 2222 &
+	else
+		echo "port 2222 is ok !"
+	fi
+}
+monitor_cli()
+{
+
 	pid=`pidof cli`
 	if [ -z "$pid" ];then
 		/usr/sbin/cli &
 	fi
+}
 
+while [ 1 ];do
+
+	sleep 60;
+	monitor_port_2222;
+	monitor_cli;
 done
