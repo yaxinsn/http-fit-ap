@@ -152,8 +152,9 @@ char* syslog_msg;
 #define MAX_SYSLOG_MSG 2048
 int _url_send_msg_to_outlog(char* url,int ip)
 {
-    char time_str[64];
+    char time_str[80];
 	time_t a;
+    struct tm *tinfo;
     struct in_addr  addr;
 	unsigned char mac[6];
 	char mac_str[32];
@@ -177,11 +178,12 @@ int _url_send_msg_to_outlog(char* url,int ip)
     	    _u_err_log(" malloc ret_url failed ");    
     	    return -1;
     	}
-	}
+    }
 	memset(syslog_msg,0,MAX_SYSLOG_MSG);
-	time(&a);
-    ctime_r(&a,time_str);
-    time_str[strlen(time_str)-1] = '\0';
+    time(&a);
+    tinfo = localtime(&a);
+    strftime(time_str,80,"%F %R",tinfo);
+    //time_str[strlen(time_str)-1] = '\0';
 
     //printf("%s:%d\n",__func__,__LINE__);
     if(get_wan_ip(&addr)){
@@ -223,16 +225,16 @@ void handle_packet2(ulog_packet_msg_t *pkt)
 //	unsigned char *p;
 //	int i;
     unsigned char* http_hdr;
-	int ret;
-	struct iphdr* iphd;
+    int ret;
+    struct iphdr* iphd;
 	//struct tcphdr* tcphd;
 	if(ret_url == NULL){
 	ret_url = malloc(URL_MAX_SIZE);
-	if(ret_url == NULL){
-	    _u_err_log(" malloc ret_url failed ");    
-	    return;
-	}
-	}
+	   if(ret_url == NULL){
+	       _u_err_log(" malloc ret_url failed ");    
+	       return;
+	    }
+        }
 	memset(ret_url,0,URL_MAX_SIZE);
 	//printf("pkt->date_len %d\n",pkt->data_len);
 	

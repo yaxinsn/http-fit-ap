@@ -206,17 +206,20 @@ found_it:
 
 int _pptp_send_msg_to_outlog(struct pptp_msg* p)
 {
-    char time_str[64];
-	time_t a;
+    char time_str[80];
+    struct tm *tinfo;
+    time_t a;
     char syslog_msg[256];
     struct in_addr  addr;
-	unsigned char mac[6];
-	char mac_str[32];
+    unsigned char mac[6];
+    char mac_str[32];
 
     
-	time(&a);
-    ctime_r(&a,time_str);
-    time_str[strlen(time_str)-1] = '\0';
+    time(&a);
+    tinfo = localtime(&a);
+    strftime(time_str,80,"%F %H",tinfo);
+    //ctime_r(&a,time_str);
+    //time_str[strlen(time_str)-1] = '\0';
 
     if(get_wan_ip(&addr)){
         _u_err_log("get wan ip failed!");

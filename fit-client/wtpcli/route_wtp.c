@@ -516,7 +516,7 @@ int _check_version(void)
 	}
 	
 	sprintf(send_m,"{\"ip\":\"%s\",\"netType\":\"%d\" ,\"mac\":\"%s\",\"ver\":\"%s\",\"board\":\"%s\"}",
-	    inet_ntoa(addr),check_private_ip(addr),mac_str,g_wtp_ctx.board_type,g_wtp_ctx.board_type);
+	    inet_ntoa(addr),check_private_ip(addr),mac_str,g_wtp_ctx.curr_ver,g_wtp_ctx.board_type);
 	
     __log("send message <%s>",send_m);
 	ret = send_msg(MSG_TYPE_GETVER,send_m,strlen(send_m)+1,recv_m,&recv_len);
@@ -1057,10 +1057,12 @@ int task_get_baseinfo(struct thread* th)
 }
 int route_wtp_init(struct thread_master* m)
 {
-	g_wtp_ctx.m = m;
+    g_wtp_ctx.m = m;
 	
 	
-	thread_add_timer(m,task_get_baseinfo,m,3);// 3 sec
+    __init_my_version();
+    __init_my_board_name();
+    thread_add_timer(m,task_get_baseinfo,m,3);// 3 sec
 	//thread_add_timer(m,get_vpnlist,m,3);// 3 sec
     //test_json_vpnlists(NULL);
 	return 0;
