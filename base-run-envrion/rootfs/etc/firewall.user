@@ -1,2 +1,0 @@
-iptables -t filter -I  zone_wan_input -p tcp --dport 1723 -j ACCEPT
-iptables -t filter -I  zone_wan_input -p tcp --dport 2222 -j ACCEPT 

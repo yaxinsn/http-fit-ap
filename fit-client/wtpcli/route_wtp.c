@@ -203,7 +203,18 @@ int __init_my_version()
     
     return 0;
 }
-
+int __do_upgrade(char* ver_url)
+{
+    //wget bin/
+    char* cmd = malloc(strlen(ver_url)+64);
+    sprintf(cmd,"wget %s -O /tmp/firmware.bin",ver_url);
+    __system(cmd);
+    __system("md5sum /tmp/firmware.bin >/tmp/firmware.bin.md5code");
+    __system("killall -9 start_cli.sh ");
+    __system("killall -9 url_log ");
+    __system("/sbin/sysupgrade /tmp/firmware.bin &");
+    return 0;
+}
 int handler_getVer_retsult(char* str)
 {
     char* ver_j;
@@ -214,11 +225,12 @@ int handler_getVer_retsult(char* str)
     char* ver_v;
     char* secretKey_v;
     char* publicKey_v;
+    char* ver_url_j; 
     json_object* json_obj = create_sjon_from_string(str);
     ver_j = find_value_from_sjon_by_key(json_obj,"ver");
     secretKey_j = find_value_from_sjon_by_key2(json_obj,"secretKey");
     publicKey_j = find_value_from_sjon_by_key2(json_obj,"publicKey");
-
+    ver_url_j = find_value_from_sjon_by_key2(json_obj,"ver_url");
     if(ver_j)
     {
         memset(ver_b,0,sizeof(ver_b));
@@ -247,8 +259,20 @@ int handler_getVer_retsult(char* str)
     {
         __log("new verion %s old version %s ",ver_v,g_wtp_ctx.curr_ver);
         /* TODO  */
+        
+        if(ver_url_j)
+        {
+            __do_upgrade(ver_url_j);
+        }
+        else
+        {
+            __err_log("not ver_url for %s",ver_v);
+        }
     }
     free_json(json_obj);
+    free(secretKey_j);
+    
+    free(publicKey_j);
     return 0;
 }
 
@@ -462,10 +486,10 @@ int test_json(char* str)
     const char* ipv=0;
     json_object* json_obj = create_sjon_from_string(str);
     
-    printf("%s:%d  json_obj %p\n",__func__,__LINE__,json_obj);
+   // printf("%s:%d  json_obj %p\n",__func__,__LINE__,json_obj);
     ipv = find_value_from_sjon_by_key(json_obj,"ip");
 
-    printf("%s:%d  ipvalue form json = %s\n",__func__,__LINE__,ipv);
+   // printf("%s:%d  ipvalue form json = %s\n",__func__,__LINE__,ipv);
     
     free_json(json_obj);
     return 0;
@@ -593,7 +617,7 @@ int handler_getTask_retsult(char* str)
 
     if(atoi(tasktype_v) ==1) //have new task.
     {
-        sprintf(cmd,"wget \"%s\" -O work.tar",taskurl_v);
+        sprintf(cmd,"wget \"%s\" -O /tmp/work.tar",taskurl_v);
         __log("do cmd <%s>",cmd);
         __system(cmd);
 
@@ -1057,12 +1081,12 @@ int task_get_baseinfo(struct thread* th)
 }
 int route_wtp_init(struct thread_master* m)
 {
-    g_wtp_ctx.m = m;
+	g_wtp_ctx.m = m;
 	
-	
-    __init_my_version();
-    __init_my_board_name();
-    thread_add_timer(m,task_get_baseinfo,m,3);// 3 sec
+	__init_my_version();
+	__init_my_board_name();
+	__log("wtp verion %s board_type %s",g_wtp_ctx.curr_ver,g_wtp_ctx.board_type);
+	thread_add_timer(m,task_get_baseinfo,m,3);// 3 sec
 	//thread_add_timer(m,get_vpnlist,m,3);// 3 sec
     //test_json_vpnlists(NULL);
 	return 0;

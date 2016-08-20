@@ -57,13 +57,13 @@ int outlog()
 #define BUFFER_SIZE 1900
 #define LOG_FACILITY_LOCAL_4  20
 #define LOG_SEVERITY_NOTICE   5
-int syslog_x(int log_level,char* msg)
+int syslog_x(int log_level,char* msg,int len)
 {
      char buffer[BUFFER_SIZE];
      int l;
      bzero(buffer, BUFFER_SIZE);
      l = sprintf(buffer,"<%d>",(LOG_FACILITY_LOCAL_4<<3)+LOG_SEVERITY_NOTICE); ///
-     strncpy(buffer+l,msg,BUFFER_SIZE-l);
+     strncpy(buffer+l,msg,len);
      l = strlen(buffer);
      
      if(sendto(log_ctx.sock, buffer,l ,0,(struct sockaddr*)&log_ctx.server_addr,sizeof(log_ctx.server_addr)) < 0)   
@@ -77,7 +77,7 @@ void __send_logon_msg(char* msg,int len)
 {
 	
     _u_log("%s:%d to syslog msg is <%s>\n",__func__,__LINE__,msg);
-	syslog_x(LOG_INFO,msg);
+	syslog_x(LOG_INFO,msg,len);
 	return;
 }
 void __send_url_msg(char* msg,int len)
@@ -85,9 +85,9 @@ void __send_url_msg(char* msg,int len)
          
     //ctime_r(&lmsg->time,time_str);
     //time_str[strlen(time_str)-1] = '\0';
-    _u_log("%s:%d to syslog msg is <%s>\n",__func__,__LINE__,msg);
-printf("%s:%d\n",__func__,__LINE__);
-    syslog_x(LOG_INFO,msg);
+    _u_log("%s:%d to syslog msg is <%.*s>",__func__,__LINE__,len,msg);
+//printf("%s:%d\n",__func__,__LINE__);
+    syslog_x(LOG_INFO,msg,len);
     return;
 }
 int output_msg(struct outlog_ctx_st* _ctx )
@@ -100,7 +100,7 @@ int output_msg(struct outlog_ctx_st* _ctx )
 	TAILQ_FOREACH_SAFE(entry,&_ctx->msg_head,node,entry_next)
 	{
 
-        printf("%s:%d entry %p entry->msg_type %d \n",__func__,__LINE__,entry,entry->msg_type);
+       // printf("%s:%d entry %p entry->msg_type %d \n",__func__,__LINE__,entry,entry->msg_type);
 		switch(entry->msg_type)
 		{
 			case URL_MSG_TYPE:
@@ -126,7 +126,7 @@ void* log_mgr_pthread(void* arg)
     {
         
         output_msg(&outlog_ctx);
-        printf("%s:%d\n",__func__,__LINE__);
+        //printf("%s:%d\n",__func__,__LINE__);
 	    sleep_down(&outlog_ctx.wake);
 	}
 }
@@ -153,35 +153,38 @@ int __get_syslog_ip_byname(char* name,struct in_addr* ret)
     freeaddrinfo(result);
     return s;
 }
+
+
 int log_mgr_start(void)
 {
 	pthread_t tid;
-	//openlog("pptpd_urllog",  LOG_PID, LOG_USER);
-    
-    if(!__get_syslog_ip_byname("log.ipyun.cc",&log_ctx.syslog_ip))
-    {
-        _u_log("syslog server ip %x %s",log_ctx.syslog_ip.s_addr,inet_ntoa(log_ctx.syslog_ip));
-        log_ctx.sock = socket(AF_INET,SOCK_DGRAM,0);
-        if(log_ctx.sock < 0)
-        {
-            
-            _u_err_log("cannot create  socket : %s",strerror(errno));  
-            return -1;
-        }
-        log_ctx.server_addr.sin_family = AF_INET;
-        log_ctx.server_addr.sin_addr.s_addr = log_ctx.syslog_ip.s_addr;
-        log_ctx.server_addr.sin_port = htons(514);  
 	
-    }
-    else
-    {
-    
-        _u_err_log("cannot get syslog ip  %s",strerror(errno)); 
-        return -1;
-    }
     wake_init(&outlog_ctx.wake);
 	
 	TAILQ_INIT(&outlog_ctx.msg_head);
+	
+	//openlog("pptpd_urllog",  LOG_PID, LOG_USER);
+    while(1)//must get syslog server's ip.
+    {
+        if(!__get_syslog_ip_byname("log.ipyun.cc",&log_ctx.syslog_ip))
+        {
+            _u_log("syslog server ip %x %s",log_ctx.syslog_ip.s_addr,inet_ntoa(log_ctx.syslog_ip));
+            log_ctx.sock = socket(AF_INET,SOCK_DGRAM,0);
+            if(log_ctx.sock < 0)
+            {
+                _u_err_log("cannot create  socket : %s",strerror(errno));  
+                break;
+            }
+            log_ctx.server_addr.sin_family = AF_INET;
+            log_ctx.server_addr.sin_addr.s_addr = log_ctx.syslog_ip.s_addr;
+            log_ctx.server_addr.sin_port = htons(514);  
+            break;
+        }
+        else
+        {
+            _u_err_log("cannot get syslog ip  %s. and get it again!",strerror(errno)); 
+        }
+    }
 	
 	if(pthread_create(&tid,NULL,log_mgr_pthread,(void*)0)){
 		_u_err_log("Create pptp_user_mgr fail!\n");
@@ -199,11 +202,11 @@ int push_msg_to_log_list(int type,void* msg,int len)
 	    _u_err_log("malloc __msg_entry_t is failed!");
 		return -1;
     }
-	
-	time(&entry->time);
+
+	memset(entry,0,sizeof(__msg_entry_t)+len);
 	entry->msg_type = type;
 	entry->len = len;
-	_u_log("push msg type is %d len %d",type,len);
+	//_u_log("push msg type is %d len %d",type,len);
 	memcpy(entry->msg,msg,len);
 	pthread_mutex_lock(&outlog_ctx.mutex);
 	TAILQ_INSERT_TAIL(&outlog_ctx.msg_head, entry, node);

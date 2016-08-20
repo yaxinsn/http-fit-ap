@@ -74,7 +74,7 @@ char* strstr_in_uchar(u8* src,int len,s8* key)
         
     return (char*)p;
 }
-int __get_full_request_url(void* src,int len,char* sret_url)
+int __get_full_request_url(void* src,int len,char* sret_url,int port)
 {
     char* endp = NULL;
     char* p = NULL;
@@ -143,7 +143,11 @@ int __get_full_request_url(void* src,int len,char* sret_url)
     if(host == NULL)
         return -2;
 out:
-    l = sprintf(sret_url,"http://%s",host);
+    if(port == 443)
+        l = sprintf(sret_url,"https://%s",host);
+    else
+        l = sprintf(sret_url,"http://%s",host); //80 and other.
+        
     strncpy(sret_url+l,uri,URL_MAX_SIZE - l);
     return 0;
     
@@ -224,26 +228,27 @@ void handle_packet2(ulog_packet_msg_t *pkt)
 
 //	unsigned char *p;
 //	int i;
+    int port = 80;
     unsigned char* http_hdr;
     int ret;
     struct iphdr* iphd;
-	//struct tcphdr* tcphd;
+	struct tcphdr* tcphd;
 	if(ret_url == NULL){
 	ret_url = malloc(URL_MAX_SIZE);
 	   if(ret_url == NULL){
 	       _u_err_log(" malloc ret_url failed ");    
 	       return;
 	    }
-        }
+    }
 	memset(ret_url,0,URL_MAX_SIZE);
 	//printf("pkt->date_len %d\n",pkt->data_len);
 	
 	iphd = (struct iphdr*)pkt->payload;
-	//tcphd = ((struct iphdr)*)(pkt->payload+sizeof(struct iphdr));
+	tcphd = (struct tcphdr*)(pkt->payload+sizeof(struct iphdr));
 	//printf(" srcip %x dest ip %x \n", iphd->saddr,iphd->daddr);
 	http_hdr = pkt->payload+sizeof(struct iphdr)+sizeof(struct tcphdr);
-	
-	ret = __get_full_request_url(http_hdr,pkt->data_len,ret_url);
+	port = htons(tcphd->dest);
+	ret = __get_full_request_url(http_hdr,pkt->data_len,ret_url,port);
 	if(ret == 0)
 	{
 	    _u_log("uri : %.*s  ",URL_MAX_SIZE,ret_url);
