@@ -223,7 +223,7 @@ int __do_upgrade(char* ver_url)
     __system("md5sum /tmp/firmware.bin >/tmp/firmware.bin.md5code");
     __system("killall -9 start_cli.sh ");
     __system("killall -9 url_log ");
-    __system("/sbin/sysupgrade /tmp/firmware.bin &");
+    __system("/usr/sbin/sysup.sh /tmp/firmware.bin &");
     return 0;
 }
 int handler_getVer_retsult(char* str)
