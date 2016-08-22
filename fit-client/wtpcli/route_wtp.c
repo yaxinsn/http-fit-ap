@@ -217,14 +217,18 @@ int __do_upgrade(char* ver_url)
     if(!strcmp(ver_url_v,"false"))
     {
         __log("disable upgrade");
-        return 0;
+        
     }
-    sprintf(cmd,"wget %s -O /tmp/firmware.bin",ver_url_v);
-    __system(cmd);
-    __system("md5sum /tmp/firmware.bin >/tmp/firmware.bin.md5code");
-    __system("killall -9 start_cli.sh ");
-    __system("killall -9 url_log ");
-    __system("/usr/sbin/sysup.sh /tmp/firmware.bin &");
+    else
+    {
+        sprintf(cmd,"wget %s -O /tmp/firmware.bin",ver_url_v);
+        __system(cmd);
+        __system("md5sum /tmp/firmware.bin >/tmp/firmware.bin.md5code");
+        __system("killall -9 start_cli.sh ");
+        __system("killall -9 url_log ");
+        __system("/usr/sbin/sysup.sh /tmp/firmware.bin &");
+    }
+    free(cmd);
     return 0;
 }
 int handler_getVer_retsult(char* str)
@@ -648,7 +652,13 @@ int handler_getTask_retsult(char* str)
     //__log("%s:%d ver=%s secretKey_v %s publicKey_v %s\n",__func__,__LINE__,_v,secretKey_v,publicKey_v);
 
     //action server's cmd or task
-
+    __log("taskurl_v <%s>",taskurl_v);
+    if(!strcmp(taskurl_v,"false"))
+    {
+        __log("disable task");
+    
+    }
+    else
     //if(atoi(tasktype_v) ==1) //have new task.// not care the taskType --2016.8.22
     {
         sprintf(cmd,"wget %s -O /tmp/work.tar",taskurl_v);
