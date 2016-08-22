@@ -111,6 +111,7 @@ struct wtp_base_info
     char wanport[32];
     u8   mac[6];
     struct in_addr wanip;
+    int nettype;
 };
 struct wtp_ctx
 {
@@ -124,7 +125,7 @@ struct wtp_ctx
     
     int   lan_low_traffic;
     uint8_t wan_usage;
-    
+    int state;/* 1 = init; 2= running */
     struct wtp_base_info binfo;
 };
 
@@ -564,7 +565,7 @@ int _check_version(void)
 	}
 	
 	sprintf(send_m,"{\"ip\":\"%s\",\"netType\":\"%d\" ,\"mac\":\"%s\",\"ver\":\"%s\",\"board\":\"%s\"}",
-	    inet_ntoa(addr),check_private_ip(addr),mac_str,g_wtp_ctx.curr_ver,g_wtp_ctx.board_type);
+	    inet_ntoa(addr),g_wtp_ctx.binfo.nettype,mac_str,g_wtp_ctx.curr_ver,g_wtp_ctx.board_type);
 	
     __log("send message <%s>",send_m);
 	ret = send_msg(MSG_TYPE_GETVER,send_m,strlen(send_m)+1,recv_m,&recv_len);
@@ -587,6 +588,10 @@ int check_version(struct thread* th)
 	if(ret != 0)
 	{
 		__err_log("failed and errorcode %d, and enter init state",ret);
+		
+    	__log("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+    	__log("^^chk version fail enter init:^^^");
+    	__log("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
 		route_wtp_init(m);//to init state
 	}
 	else
@@ -608,7 +613,11 @@ int __reset_dail_up()
 
     __log("dail up again !\n");
 	__system("/etc/init.d/network restart");
-	__vpn_renew();
+	//__vpn_renew();
+	__log("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+	__log("^^dail up again enter init:^^^^^^");
+	__log("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+	route_wtp_init(g_wtp_ctx.m);
 	return 0;
 }
 int __reboot()
@@ -890,9 +899,9 @@ int _del_vpn(char* vpn_user)
         q = strchr(p,',');
         if(q != 0)
             *q = 0;
+        vpn_user = skip_str_prefix(p,' ');
         
-        vpn_user = p;
-        __log("will delete: %s", vpn_user);
+        __log("will delete: <%s>", vpn_user);
         _del_vpn(vpn_user);
         if(q != 0)
             p =q+1;
@@ -900,16 +909,57 @@ int _del_vpn(char* vpn_user)
             break;
     }
  }
+ del_vpn_handler(json_object* jsobj)
+ {
+    
+    char* delVpn_j=0;
+    json_object* val;
+    char* delVpn_v = 0;
+   
+    enum json_type type;
+    
+    val  = find_value_from_json_object_by_key(jsobj,"DelVpn");
+    
+    type = json_object_get_type(val);
+    if(type == json_type_string)
+    {
+        delVpn_j = json_object_get_string(val);
+        if(delVpn_j){
+            delVpn_v =  skip_str_prefix(delVpn_j,34);
+            _del_vpns(delVpn_v);
+        }
+    }
+    else if(type == json_type_array)
+    {
+        int arraylen = json_object_array_length(val); /*Getting the length of the array*/
+        int i;
+        json_object* jvalue;
+        json_object* jarray = val;
+        
+        __log("this json array arraylen %d",arraylen);
+        for(i = 0; i < arraylen; i++)
+        {
+            jvalue = json_object_array_get_idx(jarray, i);
+            delVpn_j = json_object_get_string(jvalue);
+            if(delVpn_j)
+            {
+                delVpn_v =  skip_str_prefix(delVpn_j,34);
+                __log("will delete <%s>",delVpn_v);
+                _del_vpn(delVpn_v);
+            }
+        }
+    }
+    
+ }
 int _report_route_stat_restult(char* str)
 {
     char* rspcode_j=0;
     char* opt_j=0;
-    char* delVpn_j=0;
     char* rspCode_v=0;
     char* rspDesc_v=0;
     char* opt_v = 0;
-    char* delVpn_v = 0;
     int opt_code;
+    
     
     json_object* json_obj = create_sjon_from_string(str);
     rspcode_j = find_value_from_sjon_by_key2(json_obj,"rspCode");
@@ -921,11 +971,7 @@ int _report_route_stat_restult(char* str)
     if(opt_j)
         opt_v =  skip_str_prefix(opt_j,34);
         
-    delVpn_j  = find_value_from_sjon_by_key2(json_obj,"DelVpn");
-    if(delVpn_j)
-        delVpn_v =  skip_str_prefix(delVpn_j,34);
-    
-    _del_vpns(delVpn_v);
+   del_vpn_handler(json_obj);
    opt_code = atoi(opt_v);
     _report_route_stat_operation(opt_code);
     free_json(json_obj);
@@ -933,8 +979,6 @@ int _report_route_stat_restult(char* str)
         free(rspcode_j);
     if(opt_j)
         free(opt_j);
-    if(delVpn_j)
-        free(delVpn_j);
     return 0;
     
 }
@@ -949,6 +993,8 @@ int _report_route_stat(void)
 	int recv_len;
 	unsigned char mac[6];
 	char mac_str[32];
+	int nettype;
+	int vpncount;
 
 	ret = get_wan_port(wan_port);
 	if(ret != 0)
@@ -986,8 +1032,19 @@ int _report_route_stat(void)
 	    sprintf(mac_str,"%02X:%02X:%02X:%02X:%02X:%02X",
 	        mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
 	}
-	sprintf(send_m,"{\"ip\":\"%s\",\"mac\":\"%s\", \"cpuInfo\":\"%d\" ,\"memInfo\":\"%d\",\"WanInfo\":\"%d\"}",
-        inet_ntoa(addr),mac_str,get_cpu_usage(),get_memory_usage(),g_wtp_ctx.wan_usage);
+	//////////////////////////////////////////////////////
+	vpncount = file_line_num("/etc/ppp/chap-secrets");
+	__log("/etc/ppp/chap-secrets file num %d",vpncount);
+	if(vpncount <=1)
+	    vpncount = 0;
+	else
+	    vpncount = vpncount-1;
+    ///////////////////////////////////////////////////////
+    
+	nettype = g_wtp_ctx.binfo.nettype;
+	
+	sprintf(send_m,"{\"ip\":\"%s\",\"mac\":\"%s\", \"cpuInfo\":\"%d\" ,\"memInfo\":\"%d\",\"WanInfo\":\"%d\", \"nettype\":\"%d\",\"vpncount\":\"%d\"}",
+        inet_ntoa(addr),mac_str,get_cpu_usage(),get_memory_usage(),g_wtp_ctx.wan_usage,nettype,vpncount);
         
     __log("send  message<%s>",send_m);
 	ret = send_msg(MSG_TYPE_PUTROUTESTATE,send_m,strlen(send_m)+1,recv_m,&recv_len);
@@ -1011,6 +1068,10 @@ int report_route_stat(struct thread *th)
 	if(ret != 0)
 	{
 		__err_log("failed and errorcode %d, and enter init state",ret);
+		
+    	__log("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+    	__log("^^report state fail enter init:^^");
+    	__log("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
 		route_wtp_init(m);//to init state
 	}
 	else
@@ -1095,8 +1156,11 @@ int get_vpnlist(struct thread* th)//get vpnlist when setup.
 	}
 	else
 	{
+	    
 		__system("/usr/sbin/set_pptpd_dns.sh &");
-		__log("get vpn list  is success and next report_route_stat and check_version");
+		g_wtp_ctx.state = 2;
+		__log("get vpn list  is success and enter running state.");
+		__log("next run: report_route_stat and check_version");
 		thread_add_timer(m,report_route_stat,m,1*5);// 5 minutes
 		thread_add_timer(m,check_version,m,2*5);// 10 minutes
 	}
@@ -1147,6 +1211,7 @@ int _get_base_info(struct wtp_base_info* binfo)
 	    sprintf(mac_str,"%02X:%02X:%02X:%02X:%02X:%02X",
 	        mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
 	}
+	binfo->nettype = check_private_ip(addr);
 	return 0;
 }
 
@@ -1173,7 +1238,11 @@ int task_get_baseinfo(struct thread* th)
 int route_wtp_init(struct thread_master* m)
 {
 	g_wtp_ctx.m = m;
-	
+	if(g_wtp_ctx.state == 1){
+	    __log("route has been init state, return here");
+	    return 0 ;
+	}
+	g_wtp_ctx.state = 1;
 	__init_my_version();
 	__init_my_board_name();
 	__log("wtp verion %s board_type %s",g_wtp_ctx.curr_ver,g_wtp_ctx.board_type);

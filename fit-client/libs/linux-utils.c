@@ -82,7 +82,7 @@ int get_iface_ip(char* name,struct in_addr* ip)
 {
     struct sockaddr_in *addr;
     struct ifreq ifr;
-    char* address;
+    ///char* address;
     int sockfd;
 
 
@@ -95,7 +95,7 @@ int get_iface_ip(char* name,struct in_addr* ip)
 		return -1;
     	}
     addr = (struct sockaddr_in *)&(ifr.ifr_addr);
-    address = inet_ntoa(addr->sin_addr);
+    //address = inet_ntoa(addr->sin_addr);
 	memcpy(ip,&addr->sin_addr,sizeof(struct in_addr));
 	return 0;
 	
@@ -300,3 +300,21 @@ int file_set_block(int fd)
     return 0;
 }
 
+int file_line_num(char* path)
+{
+    FILE* fp;
+    int i;
+   char *line = NULL;
+   size_t len = 0;
+   ssize_t read;
+    fp = fopen(path,"r");
+    if (fp == NULL)
+        return -1;  
+
+   while ((read = getline(&line, &len, fp)) != -1) {
+       i++;
+    }
+
+    free(line);
+    return i;
+}

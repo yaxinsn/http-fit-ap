@@ -29,6 +29,6 @@ int get_cpu_usage(void);
 
 /* fcntl fuction */
 int file_set_block(int fd);
-
+int file_line_num(char* path);
 
 #endif //__LINUX_UTILS_H
