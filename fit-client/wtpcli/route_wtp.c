@@ -870,14 +870,15 @@ int _del_vpn(char* vpn_user)
     if( fp == 0)
     {
         __err_log("open <%s> failed",path);
-        return -1;
+       // return -1;
+       goto del_user;
     }
    if ( 0> (fgets(line,1024,fp)))
    {
     
         __err_log("read <%s> failed",path);
-        fclose(fp);
-        return -2;
+       // fclose(fp);
+       // return -2;
    }
     fclose(fp);
     //remove(path);
@@ -885,8 +886,12 @@ int _del_vpn(char* vpn_user)
    sscanf(line,"%s %s %s %s %d %d\n",ifname,user,localip,dailup_ip,&pid,&fpid);
   
    __log("ifname %s, user %s ,localip %s , dailup %s pid %d fpid %d",
-   ifname,user,localip,dailup_ip,pid,fpid);  
+   ifname,user,localip,dailup_ip,pid,fpid); 
+   
    kill(fpid,9);
+   
+del_user:
+    __log("I will del user form chap");
    {
         char del_chap[128];
         sprintf(del_chap,"sed -i /^%s/d /etc/ppp/chap-secrets",vpn_user);
