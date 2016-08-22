@@ -52,6 +52,21 @@ const char* find_value_from_sjon_by_key(json_object* obj,char* skey)
   return NULL;
   #endif
 }
+
+const json_object* find_value_from_json_object_by_key(json_object* obj,char* skey)
+{
+   //return json_object_to_json_string(json_object_object_get(obj,skey));
+   #if 1
+      json_object_object_foreach(obj, key, val) {
+        if(!strcmp(skey,key))
+            return (val);
+
+            
+   // printf("\t%s: %s\n", key, json_object_to_json_string(val));
+  }
+  return NULL;
+  #endif
+}
 void free_json(json_object* obj)
 {
     json_object_put(obj);

@@ -195,22 +195,23 @@ int log_mgr_start(void)
 
 int push_msg_to_log_list(int type,void* msg,int len)
 {
-	
-	__msg_entry_t* entry = NULL;
-	entry = malloc(sizeof(__msg_entry_t)+len);
-	if(entry == NULL){
-	    _u_err_log("malloc __msg_entry_t is failed!");
-		return -1;
+
+    __msg_entry_t* entry = NULL;
+    entry = malloc(sizeof(__msg_entry_t)+len);
+    if(entry == NULL){
+        _u_err_log("malloc __msg_entry_t is failed!");
+        return -1;
     }
 
-	memset(entry,0,sizeof(__msg_entry_t)+len);
-	entry->msg_type = type;
-	entry->len = len;
-	//_u_log("push msg type is %d len %d",type,len);
-	memcpy(entry->msg,msg,len);
-	pthread_mutex_lock(&outlog_ctx.mutex);
-	TAILQ_INSERT_TAIL(&outlog_ctx.msg_head, entry, node);
-	pthread_mutex_unlock(&outlog_ctx.mutex);
-	wake_up(&outlog_ctx.wake);
-	return 0;
+    memset(entry,0,sizeof(__msg_entry_t)+len);
+    entry->msg_type = type;
+    entry->len = len;
+    //_u_log("push msg type is %d len %d",type,len);
+    memcpy(entry->msg,msg,len);
+    pthread_mutex_lock(&outlog_ctx.mutex);
+    TAILQ_INSERT_TAIL(&outlog_ctx.msg_head, entry, node);
+    pthread_mutex_unlock(&outlog_ctx.mutex);
+    wake_up(&outlog_ctx.wake);
+    return 0;
 }
+

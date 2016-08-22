@@ -215,7 +215,7 @@ int _url_send_msg_to_outlog(char* url,int ip)
     //printf("%s:%d\n",__func__,__LINE__);
     strncpy(syslog_msg+len,url,MAX_SYSLOG_MSG - len);
 	_u_log("push msg <%.*s>",MAX_SYSLOG_MSG,syslog_msg);
-	push_msg_to_log_list(URL_MSG_TYPE,syslog_msg,strlen(syslog_msg));
+	push_msg_to_log_list(URL_MSG_TYPE,syslog_msg,strlen(syslog_msg)+1);
 	ret = 0;
 err:
    // free(syslog_msg);

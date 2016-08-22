@@ -241,7 +241,7 @@ int _pptp_send_msg_to_outlog(struct pptp_msg* p)
             p->username,p->peerip,p->action == PPTP_USER_ACTION_LOGON?"LOGON":"LOGOFF");
                 
 	_u_log("push msg <%s>",syslog_msg);
-	push_msg_to_log_list(LOGON_OFF_MSG_TYPE,syslog_msg,strlen(syslog_msg));
+	push_msg_to_log_list(LOGON_OFF_MSG_TYPE,syslog_msg,strlen(syslog_msg)+1);
 	return 0;
 	
 }

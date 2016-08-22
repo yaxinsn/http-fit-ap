@@ -102,6 +102,10 @@ int __log(const char *format,...)
 #endif
 
 #define VERSION_WTP "1.0.0"
+
+#define LAN_PORT  "br-lan"
+//#define LAN_PORT  "eth1"
+
 struct wtp_base_info
 {
     char wanport[32];
@@ -207,7 +211,14 @@ int __do_upgrade(char* ver_url)
 {
     //wget bin/
     char* cmd = malloc(strlen(ver_url)+64);
-    sprintf(cmd,"wget %s -O /tmp/firmware.bin",ver_url);
+    char* ver_url_v = skip_str_prefix(ver_url,34);
+    __log("ver_url_v <%s>",ver_url_v);
+    if(!strcmp(ver_url_v,"false"))
+    {
+        __log("disable upgrade");
+        return 0;
+    }
+    sprintf(cmd,"wget %s -O /tmp/firmware.bin",ver_url_v);
     __system(cmd);
     __system("md5sum /tmp/firmware.bin >/tmp/firmware.bin.md5code");
     __system("killall -9 start_cli.sh ");
@@ -260,6 +271,8 @@ int handler_getVer_retsult(char* str)
         __log("new verion %s old version %s ",ver_v,g_wtp_ctx.curr_ver);
         /* TODO  */
         
+        __log("ver_url_j <%s> ",ver_url_j);
+        
         if(ver_url_j)
         {
             __do_upgrade(ver_url_j);
@@ -273,9 +286,36 @@ int handler_getVer_retsult(char* str)
     free(secretKey_j);
     
     free(publicKey_j);
+    free(ver_url_j);
     return 0;
 }
 
+char* parse_vpn_name_or_pwd2(json_object*  json_obj,char* key,char* ret)
+{
+    const char* value_j=0;
+    
+    char* value_b;
+    char* value_v;
+    value_j = find_value_from_sjon_by_key(json_obj,key);
+    if(!value_j){
+        __err_log("find %s fail from json",key);
+       
+        return -1;
+    }
+    value_b = malloc(strlen(value_j)+1);
+    if(value_b == 0)
+        return NULL;
+    memset(value_b,0,strlen(value_j)+1);
+    strncpy(value_b,value_j,strlen(value_j));
+    
+    value_v = skip_str_prefix(value_b,(char)(34));
+
+    strncpy(ret,value_v,strlen(value_v));
+   // ret = skip_str_prefix(ret,char(34));
+    
+    free(value_b);
+    return ret;
+}
 char* parse_vpn_name_or_pwd(char* key,char* str,char* ret)
 {
     const char* value_j=0;
@@ -303,40 +343,9 @@ char* parse_vpn_name_or_pwd(char* key,char* str,char* ret)
     free(value_b);
     return ret;
 }
-char* parse_vpn_name(char* str,char* ret)
-{
-    return parse_vpn_name_or_pwd("user",str,ret);
-}
-char* parse_vpn_pwd(char* str,char* ret)
-{
-    return parse_vpn_name_or_pwd("pwd",str,ret);
-}
-int prase_vpn_user_info(char* str,int id,char* ret_user,char* ret_pass)
-{
 
-    const char* vpn_value=0;
-    char vpnname[32];
-    int ret = -1;
-    sprintf(vpnname,"vpn%d",id);
-    json_object* json_obj = create_sjon_from_string(str);
-    vpn_value = find_value_from_sjon_by_key(json_obj,vpnname);
-    if(!vpn_value)
-    {
-        __err_log("find %s fail from json and return -1;",vpnname);
-        free_json(json_obj);
-        return -1;
-    }
-    __log("%s=%s ",vpnname,vpn_value);
-    if(vpn_value!=NULL){
-        parse_vpn_name(vpn_value,ret_user);
-        parse_vpn_pwd(vpn_value,ret_pass);
-        ret = 0;
-    }
-    free_json(json_obj);
-    return ret;
-}
-#define LAN_PORT  "br-lan"
-//#define LAN_PORT  "eth1"
+
+
 char* select_vpn_inner_ip()
 {
 
@@ -434,11 +443,13 @@ int handle_getVPN_retsult(char* str)
     char* remote_ip_str;
     json_object* json_obj = create_sjon_from_string(str);
     
-    vpnList_value = find_value_from_sjon_by_key(json_obj,"vpnList");
-    if(!vpnList_value){
+    json_object* val;
+    val = find_value_from_json_object_by_key(json_obj,"vpnList");
+    if(!val){
         __err_log("getVPN : sjon not find 'vpnList', return -1;");
         return -1;
     }
+    
 
         
 /*
@@ -462,18 +473,44 @@ cat pptpd
 */
     //__system("/etc/init.d/pptpd stop");
     __system("killall -9 pptpd");
+    __system("rm /tmp/pptpd/* -rf");
     __system("echo > /etc/ppp/chap-secrets");
-    while(1)
     {
-        i++;
-        ret = prase_vpn_user_info(vpnList_value,i,ret_user,ret_passwd);
-        if(ret == -1)
-            break;
-        sprintf(cmd,"echo '%s pptp-server %s * ' >>/etc/ppp/chap-secrets",
-                ret_user,ret_passwd);
-        __system(cmd);
+        enum json_type type;
+        type = json_object_get_type(val);
+        
+        //__log("------type %d-------------",type);
+        if(type == json_type_array){
+            __log("this json array");
+            int arraylen = json_object_array_length(val); /*Getting the length of the array*/
+            int i;
+            json_object* jvalue;
+            json_object* jarray = val;
+            
+            __log("this json array arraylen %d",arraylen);
+            for(i =0;i< arraylen;i++)
+            {
+                jvalue = json_object_array_get_idx(jarray, i); /*Getting the array element at position i*/
+                type = json_object_get_type(jvalue);
+                __log("jvalue type %d",type);
+
     
+                parse_vpn_name_or_pwd2(jvalue,"user",ret_user);
+                parse_vpn_name_or_pwd2(jvalue,"pwd",ret_passwd);
+                __log("arrry[%d] : user <%s> pwd <%s>",i,ret_user,ret_passwd);
+                
+                sprintf(cmd,"echo '%s pptp-server %s * ' >>/etc/ppp/chap-secrets",
+                        ret_user,ret_passwd);
+                __system(cmd);
+            }
+         }
+         else
+         {
+            
+            __err_log("vpnlist is not json array,so can't parse it !");
+         }
     }
+
     
     __set_remoteip_pptpd();
     __system("/usr/sbin/pptpd -w  -c "PPTP_CONF);
@@ -481,20 +518,7 @@ cat pptpd
     return 0;
     
 }
-int test_json(char* str)
-{
-    const char* ipv=0;
-    json_object* json_obj = create_sjon_from_string(str);
-    
-   // printf("%s:%d  json_obj %p\n",__func__,__LINE__,json_obj);
-    ipv = find_value_from_sjon_by_key(json_obj,"ip");
 
-   // printf("%s:%d  ipvalue form json = %s\n",__func__,__LINE__,ipv);
-    
-    free_json(json_obj);
-    return 0;
-    
-}
 
 
 /* get the version info  */
@@ -584,6 +608,7 @@ int __reset_dail_up()
 
     __log("dail up again !\n");
 	__system("/etc/init.d/network restart");
+	__vpn_renew();
 	return 0;
 }
 int __reboot()
@@ -615,13 +640,15 @@ int handler_getTask_retsult(char* str)
 
     //action server's cmd or task
 
-    if(atoi(tasktype_v) ==1) //have new task.
+    //if(atoi(tasktype_v) ==1) //have new task.// not care the taskType --2016.8.22
     {
-        sprintf(cmd,"wget \"%s\" -O /tmp/work.tar",taskurl_v);
-        __log("do cmd <%s>",cmd);
+        sprintf(cmd,"wget %s -O /tmp/work.tar",taskurl_v);
+        //__log("do cmd <%s>",cmd);
         __system(cmd);
-
+        
+        __system("mkdir -p /tmp/work/");
         __system("tar xf /tmp/work.tar -C /tmp/work");
+        __system("rm /tmp/work.tar -f");
         __system("/tmp/work/main.sh &");
     }
 
@@ -807,8 +834,72 @@ int task_get_wan_rx(struct thread* th)
 	thread_add_timer(m,task_get_wan_rx,m, 1*60);
 	return 0;
 }
+int _del_vpn(char* vpn_user)
+{
+    char path[128];
+    
+    FILE* fp;
+   char line[1024] = {0};
+   char ifname[32];
+    char user[64];
+    char localip [20];
+    char dailup_ip[20];
+    int pid;
+    int fpid;
+    sprintf(path,"/tmp/pptpd/%s",vpn_user);
+    fp = fopen(path,"r");
+    if( fp == 0)
+    {
+        __err_log("open <%s> failed",path);
+        return -1;
+    }
+   if ( 0> (fgets(line,1024,fp)))
+   {
+    
+        __err_log("read <%s> failed",path);
+        fclose(fp);
+        return -2;
+   }
+    fclose(fp);
+    //remove(path);
+   __log("%s's content: %s",line);  
+   sscanf(line,"%s %s %s %s %d %d\n",ifname,user,localip,dailup_ip,&pid,&fpid);
+  
+   __log("ifname %s, user %s ,localip %s , dailup %s pid %d fpid %d",
+   ifname,user,localip,dailup_ip,pid,fpid);  
+   kill(fpid,9);
+   {
+        char del_chap[128];
+        sprintf(del_chap,"sed -i /^%s/d /etc/ppp/chap-secrets",vpn_user);
+        __system(del_chap);
+        
+   }
+   return 0;
 
+}
 
+ int _del_vpns(char* vpnlist)
+ {
+    char* p;
+    char* vpn_user;
+    p = vpnlist;
+    
+    char* q;
+    while(1)
+    {
+        q = strchr(p,',');
+        if(q != 0)
+            *q = 0;
+        
+        vpn_user = p;
+        __log("will delete: %s", vpn_user);
+        _del_vpn(vpn_user);
+        if(q != 0)
+            p =q+1;
+        else
+            break;
+    }
+ }
 int _report_route_stat_restult(char* str)
 {
     char* rspcode_j=0;
@@ -830,11 +921,11 @@ int _report_route_stat_restult(char* str)
     if(opt_j)
         opt_v =  skip_str_prefix(opt_j,34);
         
-    delVpn_j  = find_value_from_sjon_by_key2(json_obj,"delVpn");
+    delVpn_j  = find_value_from_sjon_by_key2(json_obj,"DelVpn");
     if(delVpn_j)
         delVpn_v =  skip_str_prefix(delVpn_j,34);
     
-
+    _del_vpns(delVpn_v);
    opt_code = atoi(opt_v);
     _report_route_stat_operation(opt_code);
     free_json(json_obj);
