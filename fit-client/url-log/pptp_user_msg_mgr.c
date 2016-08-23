@@ -179,14 +179,16 @@ int update_pptp_user_info( struct pptp_msg* p)
             //found it;
             if(p->action == PPTP_USER_ACTION_LOGOFF)
             {
+                
+                _u_log("I found %s, and delete it!",p->username);
                 TAILQ_REMOVE(&_ctx->_head,entry,node);
                 free(entry);  
                 
             }
             else
             {
+                _u_log("I found %s, and update it!, this log should not be happend",p->username);            
                 memcpy(&entry->pptp_info,p,sizeof(struct pptp_msg));//update it;
-                
             }
             goto found_it;
             
@@ -196,7 +198,10 @@ int update_pptp_user_info( struct pptp_msg* p)
     pthread_mutex_unlock(&_ctx->mutex);
 //not found it 
     //new it;
-    __insert_new_pptp_user(p);
+    if(p->action != PPTP_USER_ACTION_LOGOFF){
+        _u_log("<%s> logon,so create it at userlist!",p->username);
+        __insert_new_pptp_user(p);
+    }
 
     return 0;
 found_it:
@@ -301,7 +306,8 @@ int get_pptp_user_from_file(char* path)
        sscanf(line,"%s %s %s %s %d %d\n",
        p.port,p.username,p.localip,
        p.peerip,&p.pppd_pid,&p.pptp_pid);
-       _u_log("will insert this %s ot list",p.username);
+       _u_log("will insert this %s to list",p.username);
+       p.action = PPTP_USER_ACTION_LOGON;
         update_pptp_user_info(&p);
     }
     return 0;
