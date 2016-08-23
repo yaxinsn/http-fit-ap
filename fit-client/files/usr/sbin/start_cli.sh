@@ -55,4 +55,5 @@ while [ 1 ];do
 	sleep 60;
 	monitor_port_2222;
 	monitor_cli;
+	monitor_url_log;
 done
