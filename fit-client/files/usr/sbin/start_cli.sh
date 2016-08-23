@@ -33,6 +33,14 @@ monitor_port_2222()
 		echo "port 2222 is ok !"
 	fi
 }
+monitor_url_log()
+{
+
+	pid=`pidof url_log`
+	if [ -z "$pid" ];then
+		/usr/sbin/url_log &
+	fi
+}
 monitor_cli()
 {
 
