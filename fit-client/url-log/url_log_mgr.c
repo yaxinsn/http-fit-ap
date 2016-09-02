@@ -205,10 +205,8 @@ int _url_send_msg_to_outlog(char* url,int ip)
 	    sprintf(mac_str,"%02X:%02X:%02X:%02X:%02X:%02X",
 	        mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
     }
-    
-    //printf("%s:%d\n",__func__,__LINE__);
-	///_u_log("handle_msg: <%s>",(char*)buf);
-    len = sprintf(syslog_msg,"URL, %s, %s, %s, %s, %s, ",
+
+    len = sprintf(syslog_msg,", URL, %s, %s, %s, %s, %s, ",
             time_str, inet_ntoa(addr),mac_str,
             p.username,p.peerip);
             

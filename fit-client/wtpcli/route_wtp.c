@@ -113,6 +113,9 @@ struct wtp_base_info
     struct in_addr wanip;
     int nettype;
 };
+#define ROUTE_PURPOSE_VPN_SERVER        1
+#define ROUTE_PURPOSE_USER_INTERNET     2
+#define ROUTE_PURPOSE_OTHER             3
 struct wtp_ctx
 {
     struct thread_master* m;
@@ -126,6 +129,7 @@ struct wtp_ctx
     int   lan_low_traffic;
     uint8_t wan_usage;
     int state;/* 1 = init; 2= running */
+    int routetype; /* 1 ROUTE_PURPOSE_VPN_SERVER : */
     struct wtp_base_info binfo;
 };
 
@@ -142,11 +146,7 @@ int route_wtp_init(struct thread_master* m);
 }
 
 */
-struct vpn_data
-{
-    char* name;
-    char* pwd;
-};
+
 
 #define __system(cmd)   do{ \
     __log("do system cmd: %s",cmd); \
@@ -155,7 +155,7 @@ struct vpn_data
 
 
 
-int __init_my_board_name()
+int __init_my_board_name(void)
 {
     FILE* fp;
     char* ret;
@@ -182,7 +182,7 @@ int __init_my_board_name()
     return 0;
 }
 
-int __init_my_version()
+int __init_my_version(void)
 {
     FILE* fp;
     char* ret;
@@ -231,36 +231,57 @@ int __do_upgrade(char* ver_url)
     free(cmd);
     return 0;
 }
+int do_upgrade()
+{
+
+}
 int handler_getVer_retsult(char* str)
 {
     char* ver_j;
     char* secretKey_j;
     char* publicKey_j;
     //char buf[256]={0};
-    char ver_b[256];
+   // char ver_b[256];
     char* ver_v;
     char* secretKey_v;
     char* publicKey_v;
     char* ver_url_j; 
     json_object* json_obj = create_sjon_from_string(str);
-    ver_j = find_value_from_sjon_by_key(json_obj,"ver");
-    secretKey_j = find_value_from_sjon_by_key2(json_obj,"secretKey");
-    publicKey_j = find_value_from_sjon_by_key2(json_obj,"publicKey");
+    ver_j = find_value_from_sjon_by_key2(json_obj,"ver");
     ver_url_j = find_value_from_sjon_by_key2(json_obj,"ver_url");
     if(ver_j)
     {
-        memset(ver_b,0,sizeof(ver_b));
-        strncpy(ver_b,ver_j,sizeof(ver_b));
-        ver_v = skip_str_prefix(ver_b,(char)(34));
+      //  memset(ver_b,0,sizeof(ver_b));
+      //  strncpy(ver_b,ver_j,sizeof(ver_b));
+        ver_v = skip_str_prefix(ver_j,(char)(34));
 
+        if(strcmp(ver_v,g_wtp_ctx.curr_ver) != 0)
+        {
+            __log("new verion %s old version %s ",ver_v,g_wtp_ctx.curr_ver);
+            __log("ver_url_j <%s> ",ver_url_j);
+            
+            if(ver_url_j)
+            {
+                __do_upgrade(ver_url_j);
+            }
+            else
+            {
+                __err_log("not ver_url for %s",ver_v);
+            }
+        }
     }
+    else
+    {
+         __err_log("not find  ver_url ");
+    }
+    
+    publicKey_j = find_value_from_sjon_by_key2(json_obj,"publicKey");
     if(publicKey_j)
     {
         publicKey_v = skip_str_prefix(publicKey_j,(char)(34));
         g_wtp_ctx.publicKey = publicKey_v;
-
-        
     }
+    secretKey_j = find_value_from_sjon_by_key2(json_obj,"secretKey");
     if(secretKey_j)
     {
         secretKey_v = skip_str_prefix(secretKey_j,(char)(34));
@@ -271,27 +292,17 @@ int handler_getVer_retsult(char* str)
   
     //do new version
     
-    if(strcmp(ver_v,g_wtp_ctx.curr_ver) != 0)
-    {
-        __log("new verion %s old version %s ",ver_v,g_wtp_ctx.curr_ver);
-        /* TODO  */
-        
-        __log("ver_url_j <%s> ",ver_url_j);
-        
-        if(ver_url_j)
-        {
-            __do_upgrade(ver_url_j);
-        }
-        else
-        {
-            __err_log("not ver_url for %s",ver_v);
-        }
-    }
-    free_json(json_obj);
-    free(secretKey_j);
     
-    free(publicKey_j);
-    free(ver_url_j);
+    free_json(json_obj);
+    if(secretKey_j)
+        free(secretKey_j);
+    if(publicKey_j)
+        free(publicKey_j);
+    if(ver_url_j)
+        free(ver_url_j);
+    if(ver_j)
+        free(ver_j);
+            
     return 0;
 }
 
@@ -321,6 +332,7 @@ char* parse_vpn_name_or_pwd2(json_object*  json_obj,char* key,char* ret)
     free(value_b);
     return ret;
 }
+#if 0
 char* parse_vpn_name_or_pwd(char* key,char* str,char* ret)
 {
     const char* value_j=0;
@@ -349,7 +361,7 @@ char* parse_vpn_name_or_pwd(char* key,char* str,char* ret)
     return ret;
 }
 
-
+#endif
 
 char* select_vpn_inner_ip()
 {
@@ -443,80 +455,84 @@ int handle_getVPN_retsult(char* str)
     char cmd[256];
     char ret_user[256];
     char ret_passwd[256];
+    enum json_type type;
+    char routetype_str[6];
    // char vpnlist[1024]= {0};
     
     char* remote_ip_str;
     json_object* json_obj = create_sjon_from_string(str);
     
     json_object* val;
-    val = find_value_from_json_object_by_key(json_obj,"vpnList");
+    json_object* routetype_jsobj;
+    
+    routetype_jsobj = find_value_from_json_object_by_key(json_obj,"routetype");
+    if(!routetype_jsobj)
+    {
+        __err_log("vpnlist json not have routetype");
+    }
+    else
+    {
+        type = json_object_get_type(routetype_jsobj);
+        if(type == json_type_int)
+        {
+            g_wtp_ctx.routetype = json_object_get_int(routetype_jsobj);
+            __err_log("routetype json type json_type_int!");
+            __log("routetype  = %d",g_wtp_ctx.routetype);
+        }
+        else if (type == json_type_string)
+        {
+            strncpy(routetype_str,json_object_get_string(routetype_jsobj),5);
+            sscanf(routetype_str,"\"%d\"",g_wtp_ctx.routetype);
+            
+            __err_log("routetype json type json_type_string!");
+            __log("routetype  = %d",g_wtp_ctx.routetype);
+            
+            
+        }
+    }
+    
+    val = find_value_from_json_object_by_key(json_obj,"vpnlist");
     if(!val){
         __err_log("getVPN : sjon not find 'vpnList', return -1;");
         return -1;
     }
-    
-
-        
-/*
-
-     uci set   pptpd.pptpd=service
-uci set pptpd.pptpd.enabled=1
-uci set pptpd.pptpd.localip= br-wan ip
-pptpd.pptpd.remoteip=0-255µÄÈ«Íø IP
-pptpd.@login[0]=login
-pptpd.@login[0].username=youruser
-pptpd.@login[0].password=1234
-pptpd.@login[0].remoteip=172.25.15.2-254
-# uci add pptpd login
-uci set pptpd.@login[2].username=sdfsf
-uci commit
-uci set pptpd.@login[2].password=sdfsf1111
-uci set pptpd.@login[2].remoteip=172.16.7.2
-uci commit
-cat pptpd
-
-*/
-    //__system("/etc/init.d/pptpd stop");
     __system("killall -9 pptpd");
     __system("rm /tmp/pptpd/* -rf");
     __system("echo > /etc/ppp/chap-secrets");
-    {
-        enum json_type type;
-        type = json_object_get_type(val);
+
+    type = json_object_get_type(val);
+    
+    //__log("------type %d-------------",type);
+    if(type == json_type_array){
+        __log("this json array");
+        int arraylen = json_object_array_length(val); /*Getting the length of the array*/
+        int i;
+        json_object* jvalue;
+        json_object* jarray = val;
         
-        //__log("------type %d-------------",type);
-        if(type == json_type_array){
-            __log("this json array");
-            int arraylen = json_object_array_length(val); /*Getting the length of the array*/
-            int i;
-            json_object* jvalue;
-            json_object* jarray = val;
-            
-            __log("this json array arraylen %d",arraylen);
-            for(i =0;i< arraylen;i++)
-            {
-                jvalue = json_object_array_get_idx(jarray, i); /*Getting the array element at position i*/
-                type = json_object_get_type(jvalue);
-                __log("jvalue type %d",type);
+        __log("this json array arraylen %d",arraylen);
+        for(i =0;i< arraylen;i++)
+        {
+            jvalue = json_object_array_get_idx(jarray, i); /*Getting the array element at position i*/
+            type = json_object_get_type(jvalue);
+            __log("jvalue type %d",type);
 
-    
-                parse_vpn_name_or_pwd2(jvalue,"user",ret_user);
-                parse_vpn_name_or_pwd2(jvalue,"pwd",ret_passwd);
-                __log("arrry[%d] : user <%s> pwd <%s>",i,ret_user,ret_passwd);
-                
-                sprintf(cmd,"echo '%s pptp-server %s * ' >>/etc/ppp/chap-secrets",
-                        ret_user,ret_passwd);
-                __system(cmd);
-            }
-         }
-         else
-         {
-            
-            __err_log("vpnlist is not json array,so can't parse it !");
-         }
-    }
 
-    
+            parse_vpn_name_or_pwd2(jvalue,"user",ret_user);
+            parse_vpn_name_or_pwd2(jvalue,"pwd",ret_passwd);
+            __log("arrry[%d] : user <%s> pwd <%s>",i,ret_user,ret_passwd);
+            
+            sprintf(cmd,"echo '%s pptp-server %s * ' >>/etc/ppp/chap-secrets",
+                    ret_user,ret_passwd);
+            __system(cmd);
+        }
+     }
+     else
+     {
+        
+        __err_log("vpnlist is not json array,so can't parse it !");
+     }
+
     __set_remoteip_pptpd();
     __system("/usr/sbin/pptpd -w  -c "PPTP_CONF);
     free_json(json_obj);
@@ -568,7 +584,7 @@ int _check_version(void)
 	        mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
 	}
 	
-	sprintf(send_m,"{\"ip\":\"%s\",\"netType\":\"%d\" ,\"mac\":\"%s\",\"ver\":\"%s\",\"board\":\"%s\"}",
+	sprintf(send_m,"{\"ip\":\"%s\",\"nettype\":\"%d\" ,\"mac\":\"%s\",\"ver\":\"%s\",\"board\":\"%s\"}",
 	    inet_ntoa(addr),g_wtp_ctx.binfo.nettype,mac_str,g_wtp_ctx.curr_ver,g_wtp_ctx.board_type);
 	
     __log("send message <%s>",send_m);
@@ -640,42 +656,48 @@ int handler_getTask_retsult(char* str)
     char cmd[1024];
     
     json_object* json_obj = create_sjon_from_string(str);
-    tasktype_j = find_value_from_sjon_by_key2(json_obj,"taskType");
+    tasktype_j = find_value_from_sjon_by_key2(json_obj,"tasktype");
     if(tasktype_j)
     {
         tasktype_v = skip_str_prefix(tasktype_j,34);    
     }
-    taskurl_j = find_value_from_sjon_by_key2(json_obj,"taskUrl");
-    if(taskurl_j)
-        taskurl_v = skip_str_prefix(taskurl_j,34);
-    
-    //__log("%s:%d ver=%s secretKey_v %s publicKey_v %s\n",__func__,__LINE__,_v,secretKey_v,publicKey_v);
+    taskurl_j = find_value_from_sjon_by_key2(json_obj,"taskurl");
+    if(taskurl_j){
+            taskurl_v = skip_str_prefix(taskurl_j,34);    //__log("%s:%d ver=%s secretKey_v %s publicKey_v %s\n",__func__,__LINE__,_v,secretKey_v,publicKey_v);
 
-    //action server's cmd or task
-    __log("taskurl_v <%s>",taskurl_v);
-    if(!strcmp(taskurl_v,"false"))
-    {
-        __log("disable task");
-    
+        //action server's cmd or task
+        __log("taskurl_v <%s>",taskurl_v);
+        if(!strcmp(taskurl_v,"false"))
+        {
+            __log("disable task");
+        
+        }
+        else
+        //if(atoi(tasktype_v) ==1) //have new task.// not care the taskType --2016.8.22
+        {
+            sprintf(cmd,"wget %s -O /tmp/work.tar",taskurl_v);
+            //__log("do cmd <%s>",cmd);
+            __system(cmd);
+            
+            __system("mkdir -p /tmp/work/");
+            __system("tar xf /tmp/work.tar -C /tmp/work");
+            __system("rm /tmp/work.tar -f");
+            __system("/tmp/work/main.sh &");
+        }
     }
     else
-    //if(atoi(tasktype_v) ==1) //have new task.// not care the taskType --2016.8.22
     {
-        sprintf(cmd,"wget %s -O /tmp/work.tar",taskurl_v);
-        //__log("do cmd <%s>",cmd);
-        __system(cmd);
         
-        __system("mkdir -p /tmp/work/");
-        __system("tar xf /tmp/work.tar -C /tmp/work");
-        __system("rm /tmp/work.tar -f");
-        __system("/tmp/work/main.sh &");
+        __err_log("taskurl is null");
     }
 
     
      
     free_json(json_obj);
-    free(tasktype_j);
-    free(taskurl_j);
+    if(tasktype_j)
+        free(tasktype_j);
+    if(taskurl_j)
+        free(taskurl_j);
     return 0;
 }
 int get_new_task(struct thread* th)//get vpnlist when setup.
@@ -887,8 +909,8 @@ int _del_vpn(char* vpn_user)
   
    __log("ifname %s, user %s ,localip %s , dailup %s pid %d fpid %d",
    ifname,user,localip,dailup_ip,pid,fpid); 
-   
-   kill(fpid,9);
+   if(fpid)
+        kill(fpid,9);
    
 del_user:
     __log("I will del user form chap");
@@ -917,7 +939,13 @@ del_user:
         vpn_user = skip_str_prefix(p,' ');
         
         __log("will delete: <%s>", vpn_user);
-        _del_vpn(vpn_user);
+        if(strlen(vpn_user) == 0)
+        {
+            __log("vpn user is empty!");
+        }
+        else
+            _del_vpn(vpn_user);
+            
         if(q != 0)
             p =q+1;
         else
@@ -933,14 +961,20 @@ del_user:
    
     enum json_type type;
     
-    val  = find_value_from_json_object_by_key(jsobj,"DelVpn");
-    
+    val  = find_value_from_json_object_by_key(jsobj,"delvpn");
+    if(!val)
+        return;
     type = json_object_get_type(val);
     if(type == json_type_string)
     {
         delVpn_j = json_object_get_string(val);
         if(delVpn_j){
             delVpn_v =  skip_str_prefix(delVpn_j,34);
+            if(strlen(delVpn_v) == 0)
+            {
+                __log("delvpn list is empty!");
+            }
+            else
             _del_vpns(delVpn_v);
         }
     }
@@ -977,18 +1011,19 @@ int _report_route_stat_restult(char* str)
     
     
     json_object* json_obj = create_sjon_from_string(str);
-    rspcode_j = find_value_from_sjon_by_key2(json_obj,"rspCode");
+    rspcode_j = find_value_from_sjon_by_key2(json_obj,"rspcode");
     if(rspcode_j){
         rspCode_v = skip_str_prefix(rspcode_j,34);
     }
     //rspDesc_v = find_value_from_sjon_by_key2(json_obj,"rspDesc");
     opt_j     = find_value_from_sjon_by_key2(json_obj,"opt");
-    if(opt_j)
+    if(opt_j){
         opt_v =  skip_str_prefix(opt_j,34);
-        
+        opt_code = atoi(opt_v);
+        _report_route_stat_operation(opt_code);
+    }
    del_vpn_handler(json_obj);
-   opt_code = atoi(opt_v);
-    _report_route_stat_operation(opt_code);
+   
     free_json(json_obj);
     if(rspcode_j)
         free(rspcode_j);
@@ -1031,8 +1066,8 @@ int _report_route_stat(void)
 	
 	if(g_wtp_ctx.binfo.wanip.s_addr != addr.s_addr)
 	{
-	    __log("wan ip is change, and renew vpnlist after 5 sec!");
-	    thread_add_timer(g_wtp_ctx.m,get_vpnlist,g_wtp_ctx.m,5);// 5 sec
+	    __log("wan ip is change!");
+	    //thread_add_timer(g_wtp_ctx.m,get_vpnlist,g_wtp_ctx.m,5);// 5 sec
 	    g_wtp_ctx.binfo.wanip.s_addr = addr.s_addr;
 	}
 	
@@ -1054,11 +1089,17 @@ int _report_route_stat(void)
 	    vpncount = 0;
 	else
 	    vpncount = vpncount-1;
+	if(vpncount == 0 
+	    && g_wtp_ctx.routetype == ROUTE_PURPOSE_VPN_SERVER
+	    && g_wtp_ctx.binfo.nettype == 1) //public
+	{
+	    __vpn_renew();
+	}
     ///////////////////////////////////////////////////////
     
 	nettype = g_wtp_ctx.binfo.nettype;
 	
-	sprintf(send_m,"{\"ip\":\"%s\",\"mac\":\"%s\", \"cpuInfo\":\"%d\" ,\"memInfo\":\"%d\",\"WanInfo\":\"%d\", \"nettype\":\"%d\",\"vpncount\":\"%d\"}",
+	sprintf(send_m,"{\"ip\":\"%s\",\"mac\":\"%s\", \"cpuinfo\":\"%d\" ,\"meminfo\":\"%d\",\"waninfo\":\"%d\", \"nettype\":\"%d\",\"vpncount\":\"%d\"}",
         inet_ntoa(addr),mac_str,get_cpu_usage(),get_memory_usage(),g_wtp_ctx.wan_usage,nettype,vpncount);
         
     __log("send  message<%s>",send_m);
@@ -1070,7 +1111,6 @@ int _report_route_stat(void)
 	    __log("recv message len %d <%s>",recv_len,recv_m);
 	    _report_route_stat_restult(recv_m);
 	}
-	return 0;
 	return 0;
 }
 int report_route_stat(struct thread *th)
@@ -1141,7 +1181,8 @@ int _get_vpnlist(void)
 	        mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
 	}
 
-	sprintf(send_m,"{\"ip\":\"%s\",\"mac\":\"%s\"}",inet_ntoa(addr),mac_str);
+	sprintf(send_m,"{\"ip\":\"%s\",\"mac\":\"%s\",\"nettype\":\"%d\"}",
+	    inet_ntoa(addr),mac_str,g_wtp_ctx.binfo.nettype);
 	
     __log(" send  message<%s>",send_m);
 	ret = send_msg(MSG_TYPE_GETVPN,send_m,strlen(send_m)+1,recv_m,&recv_len);
@@ -1161,23 +1202,24 @@ int get_vpnlist(struct thread* th)//get vpnlist when setup.
 	int ret=0;
 	
     __log("  enter task get_vpnlist:");
+    if(g_wtp_ctx.binfo.nettype == 0)// public
+    {
+        __log("this ap has not public ip,so do't get vpnlist");
+        return 0;
+    }
+    g_wtp_ctx.routetype = ROUTE_PURPOSE_VPN_SERVER;
 	ret = _get_vpnlist();
 	if(ret!=0)
 	{
 		//error
-		__err_log("get_vpnlist failed and errorcode %d",ret);
+        __err_log("get vpnlist failed and errorcode %d",ret);
 		
 		thread_add_timer(m,get_vpnlist,m,3*60);// 3 minutes
 	}
 	else
 	{
-	    
+        __log("get vpn list  is success.");
 		__system("/usr/sbin/set_pptpd_dns.sh &");
-		g_wtp_ctx.state = 2;
-		__log("get vpn list  is success and enter running state.");
-		__log("next run: report_route_stat and check_version");
-		thread_add_timer(m,report_route_stat,m,1*5);// 5 minutes
-		thread_add_timer(m,check_version,m,2*5);// 10 minutes
 	}
 	return 0;
 }
@@ -1245,7 +1287,13 @@ int task_get_baseinfo(struct thread* th)
 	{
 	
     	__log("task get_baseinfo success; and next get_vpnlist,task_get_lan_rx,task_get_wan_tx");
+    	
+		g_wtp_ctx.state = 2;
 	    thread_add_timer(m,get_vpnlist,m,3);// 3 sec
+	    
+		thread_add_timer(m,report_route_stat,m,1*5);// 5 minutes
+		thread_add_timer(m,check_version,m,2*5);// 10 minutes
+		
         thread_add_timer(m,task_get_lan_rx,m,1);        
 	    thread_add_timer(m,task_get_wan_rx,m, 1*60);  
 	}

@@ -20,7 +20,7 @@ CFLAGS+=-I. -I../libs/ -I./utils -include os.h -include utils/utils.h \
 EXTLIB+=-lcrypt -lutil -lrt
 #LDFLAGS+= $(TARGET_LDFLAGS)  -lc -lm -ldl -lmbedtls -lcurl  -L/mnt/Chaos-Calmer-15.05/openwrt/build_dir/target-mipsel_24kec+dsp_uClibc-0.9.33.2/json-c-0.12/ipkg-install/usr/lib -ljson-c 
 #LDFLAGS+= $(TARGET_LDFLAGS)  -lc -lm -ldl -lmbedtls -lcurl  -L$(BUILD_DIR)/json-c-0.12/ipkg-install/usr/lib -ljson-c 
-LDFLAGS+= $(TARGET_LDFLAGS)  -lc -lm -ldl $(TARGET_LDFLAGS)  -lcurl  -L$(BUILD_DIR)/json-c-0.12/ipkg-install/usr/lib -ljson-c 
+LDFLAGS+= $(TARGET_LDFLAGS)  -lc -lm -ldl  -lcrypto $(TARGET_LDFLAGS)  -lcurl  -L$(BUILD_DIR)/json-c-0.12/ipkg-install/usr/lib -ljson-c 
 vpath %.c ../libs
 vpath %.h ../libs
 all default : $(EXE)

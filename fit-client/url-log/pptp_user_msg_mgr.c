@@ -224,7 +224,7 @@ int _pptp_send_msg_to_outlog(struct pptp_msg* p)
     
     time(&a);
     tinfo = localtime(&a);
-    strftime(time_str,80,"%F %H",tinfo);
+    strftime(time_str,80,"%F %R",tinfo);
     //ctime_r(&a,time_str);
     //time_str[strlen(time_str)-1] = '\0';
 
@@ -243,7 +243,7 @@ int _pptp_send_msg_to_outlog(struct pptp_msg* p)
     }
     
 	///_u_log("handle_msg: <%s>",(char*)buf);
-    sprintf(syslog_msg,"LOGON_OFF, %s, %s, %s, %s, %s, %s",
+    sprintf(syslog_msg,", LOGON_OFF, %s, %s, %s, %s, %s, %s",
             time_str, inet_ntoa(addr),mac_str,
             p->username,p->peerip,p->action == PPTP_USER_ACTION_LOGON?"LOGON":"LOGOFF");
                 

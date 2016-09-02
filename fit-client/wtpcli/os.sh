@@ -17,7 +17,7 @@ echo -e  \
  * LDFLAGS=${LDFLAGS} 
  */\n"
 
-TMP=/var/run/tmp
+TMP=./var/run/tmp
 INC=$TMP/inc.h
 LIB=$TMP/lib.a
 SRC=$TMP/src.c

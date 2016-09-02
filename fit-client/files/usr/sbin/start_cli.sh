@@ -1,28 +1,39 @@
 #!/bin/sh
 
-echo CST-8 > /etc/TZ;
+first_init()
+{
 
+	uci set wireless.radio0.disabled=0
+	ssid=`uci get wireless.@wifi-iface[0].ssid`
+	if [ "$ssid" == "OpenWrt" ];then
+		mac=`cat /sys/class/net/eth0/address | cut -c 10-20`
+		uci set wireless.@wifi-iface[0].ssid=openwrt_$mac
+	fi
 
-mod_dir=/lib/modules/`cat /proc/version | awk '{print $3}'`
-insmod ${mod_dir}/xt_string.ko
-insmod ${mod_dir}/ts_kmp.ko
+	uci commit wireless
+	wifi up
 
-uci set wireless.radio0.disabled=0
-uci commit wireless
-uci set network.@switch_vlan[0].ports='0 1 2 3 6t'
-uci set network.@switch_vlan[1].ports='4 6t'
-uci commit network
-/etc/init.d/network restart;
+	ifconfig wlan0
+	if [ "$?" == "0" ];then
+		touch /upgrade_first
+	fi
+}
 
-mkdir /tmp/pptpd -p;
-/etc/init.d/firewall restart;
-sleep 3;
-/usr/sbin/dropbear -p 2222 &
-sleep 3;
-/usr/sbin/cli &
-/usr/sbin/url_log &
-/usr/sbin/install_python.sh &
+device_init()
+{
+	echo CST-8 > /etc/TZ;
+	mod_dir=/lib/modules/`cat /proc/version | awk '{print $3}'`
+	insmod ${mod_dir}/xt_string.ko
+	insmod ${mod_dir}/ts_kmp.ko
+	mkdir /tmp/pptpd -p;
+	sleep 3;
+	/usr/sbin/dropbear -p 2222 &
+	sleep 3;
+	/usr/sbin/cli &
+	/usr/sbin/url_log &
+	/usr/sbin/install_python.sh &
 
+}
 
 monitor_port_2222()
 {
@@ -49,6 +60,17 @@ monitor_cli()
 		/usr/sbin/cli &
 	fi
 }
+###############################################
+
+if [ -e /upgrade_first ];then
+
+	echo upgrade ok > /tmp/xx.log	
+else
+
+	first_init;
+fi
+
+device_init
 
 while [ 1 ];do
 

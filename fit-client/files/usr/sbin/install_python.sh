@@ -5,7 +5,7 @@ type=`cat /tmp/sysinfo/board_name`
 
 while [ 1 ];do
 
-if [ "$type" == "zbt-wa052" ];then
+if [ "$type" == "zbt-wa052" -o "$type" == "zbt-wa053" ];then
 
 	python -V;
 	if [ "$?" != "0" ];then
